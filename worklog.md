@@ -36,3 +36,19 @@ Stage Summary:
 - Key insight: PDF is never cut/parsed — user maps pages + total Qs, app generates palette, only the answer key is regex-parsed (trivially reliable)
 - Real gaps found in built code: no manual PDF page navigation, no option-number key mapping, no PDF numerical tolerance, no full-paper mode, no key-later mode
 - PLAN.md at project root; Sprints A/B/C each sized for one 45-60 min session; awaiting user go for Sprint A
+
+---
+Task ID: 3
+Agent: main (Super Z) + Explore subagent (audit)
+Task: Explain answer-checking without AI (simple + technical); full-feature plan for ALL modules backed by whole-codebase audit + web research.
+
+Work Log:
+- Dispatched Explore agent: read all 11 jee components + lib (types/idb/analytics/syllabus-seed/demo/db) + app files; returned per-module feature/gap/hardcode/quick-win audit + data-layer + cross-cutting findings
+- Ran 5 web searches: competitor features (Melvano/JeeHub: weak-area tracking, countdown), learning science (retrieval practice validates retry-wrong + 1-3-7 loop), JEE Main 2027 timeline (Session 1 Jan 2027, ~15 weeks out), tracker metrics (low-quality, discarded), topper methods (thin, prior research reused)
+- Key audit findings: QuestionBank has NO edit + unsafe delete (dangling question_ids corrupt tests); Player has ZERO keyboard support + no Previous button; NTA (1)-(4) keys mis-parse; no image field on questions; no KaTeX; scoring constants duplicated 4x; export loses pdf-blob; import unvalidated; no PWA; dead Prisma/db.ts + ~40 unused components
+- Rewrote PLAN.md as Master Plan v3: answer-checking explanation (red-pen analogy + technical path + key-PDF upload feasibility), research inputs, 6 sprints (A PDF correctness, B player+full-paper, C safety/data, D learning loop, E dashboard/tracker, F polish) each sized for one 45-60 min session, master verdict table per module, exclusions, acceptance checklist v3
+
+Stage Summary:
+- PLAN.md = authoritative full-app roadmap; 6 sprints then freeze (~15 weeks to JEE Main 2027 S1)
+- New features added beyond v2 plan: retry-wrong-as-new-test, exam countdown, streak, key-PDF upload (digital only), image paste, question edit, deep links, PWA
+- Awaiting user go for Sprint A

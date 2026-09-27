@@ -1,167 +1,162 @@
-# JEE Study App — Full-Usability Plan (v2.0)
+# JEE Study App — Master Plan v3 (ALL features)
 
-Date: 2026-09-27 · Context: MVP (spec v2) is **built and browser-verified** (see worklog Task 1).
-This plan answers (a) how CBT-from-PDF works without AI, (b) what separates the current build
-from a daily-driver app a JEE aspirant actually uses every day, and (c) the sprint plan to close it.
-
----
-
-## 1. How CBT test creation actually works — the no-AI answer
-
-### 1.1 The misconception
-"Upload PDF → app cuts each question out as a screenshot, numbers it, extracts options —
-but how does it know where Q1 starts and ends?"
-
-That approach (auto-segmentation) genuinely needs AI or fragile regex, and it fails on
-scans, 2-column layouts, and coaching-module typography. **The app does not do this —
-and it never needs to.**
-
-### 1.2 Page-Mode: the PDF is never cut (as built, verified in code)
-The PDF stays whole. The app is a **CBT layer laid on top of it**:
-
-1. **Upload** — pdf.js reads the file 100% locally (never uploaded, page count detected).
-2. **Map** — YOU tell the app four numbers: `start page`, `end page`,
-   `total questions`, `duration`. No content parsing, no boundary detection.
-3. **Palette is generated** — Q1…Qn appear as an NTA-style grid (green answered /
-   purple marked / white untouched / yellow current) with Save & Next,
-   Mark for Review & Next, Clear.
-4. **Read from the PDF panel** — the player renders the page that (probably) holds the
-   current question next to the palette and follows you as you move.
-5. **Score** — after submit, +4 / −1 / 0 exactly like NTA (numerical included).
-
-Setup cost: ~60 seconds. Works on scanned Arihant pages, coaching sheets, NTA PYQ PDFs —
-anything, because the PDF is only ever *displayed*, never *understood*.
-
-### 1.3 The only parsing that happens: the answer key
-You paste the key ("1. A  2. C  3. B  4. 42"). A regex picks out
-`number → letter` and `number → value` pairs. This is trivially reliable — answer keys
-are rigid, regular tables, unlike question bodies. Live preview + coverage check
-("missing: Q7, Q12") + unmatched questions score as unattempted after a confirm.
-
-### 1.4 Four ways to get questions out of a PDF — and why Page-Mode won
-
-| Approach | Accuracy | Per-test setup | Verdict |
-|---|---|---|---|
-| AI vision extraction | 90–95%, fails silently | ~0 | ❌ no AI budget, spec forbids |
-| Regex on question text | only clean digital PDFs; breaks on scans/2-col | ~0 but fragile | ⏸ Phase 2 at most |
-| Manual screenshot crops | perfect | 20–40 min per paper | ❌ kills the 45-min/day reality |
-| **Page-Mode (built)** | **perfect — nothing extracted** | **~60 sec** | ✅ **shipped** |
-
-### 1.5 Where the current build is deliberately simple (known limits)
-- PDF panel follows you by a **linear estimate** (`questions ÷ pages`) — if a paper has
-  uneven questions per page, the follow can land a page off; **no manual flip/zoom yet**.
-- One **subject per PDF test** — a full 75-Q PYQ paper can't run as one test with P/C/M sections.
-- Official NTA keys use option numbers **(1)(2)(3)(4)** — parser currently treats bare
-  digits as *numerical answers*, so pasting an official key can mis-score MCQs.
-- PDF numerical answers are **exact-match** (no tolerance field).
-- Key must exist **before** the test starts (no key-later / self-mark mode).
-
-These are exactly the gaps Sprint A–C close (§5).
+Date: 2026-09-27 · Status: MVP built & verified → this is the full-app upgrade plan:
+every module audited against the real code, sized into 6 one-session sprints, then freeze.
+Supersedes the CBT-only roadmap in v2 (v2 §1 explanation of Page-Mode remains valid).
 
 ---
 
-## 2. What the research says (web, Sep 2026)
+## 1. How answer checking works — no AI, explained simply + technically
 
-| Finding | Source | Consequence for the app |
-|---|---|---|
-| JEE Main pattern (stable since 2025 revision, unchanged for 2026/27 cycle): 75 Qs, 20 MCQ + 5 numerical per subject, 300 marks, 180 min, **+4/−1 applies to numerical too** | Careers360 / Shiksha / Vedantu syllabus pages | App scoring already matches; nothing to change |
-| Syllabus 2026 = revised 2025 syllabus; whole-chapter deletions confirmed: **Mathematical Reasoning, Mathematical Inductions, Communication Systems** (Chem: Solid State etc.) | phodu.club / leverageedu / getmyuni | Seed excludes exactly these — correct, keep |
-| **NTA Abhyas** = official free app, full-length CBT mocks matching real pattern/layout/difficulty (30L+ attempts in first 55 days) | Hindustan Times / Shiksha | Don't rebuild mocks — **log** Abhyas results via External Log (built) |
-| **SATHEE** (IIT Kanpur + MoE) = free mock tests, PYQs, lectures | edexlive / theprint / sathee.iitk.ac.in | Same: source of full mocks → External Log |
-| Topper method: 6–8 h/day split P/C/M, **front-load high-weightage chapters, log every mistake in an error notebook** | competer.in / esaral | Error tags (C/F/A/R/T/G) + Amber-first queue are exactly this, digitized |
+### 1.1 Simple words (the red-pen analogy)
+Checking answers is exactly what you do with a red pen and a printed key — the app just does it 75× faster:
 
-Net: the app's bets (Page-Mode, external log, error tags, Tier-1-first) all match how the
-exam is actually conducted and how self-studiers operate. No architectural corrections needed.
+1. When you tap **B** for Q7, the app saves "Q7 → B". That's it. No reading, no understanding.
+2. The key is a **clean list** the app already has: `1→A, 2→C, 3→B, …` (built when you pasted the key text).
+3. On submit, for every question the app asks two things: *"What did the student pick?"* and *"What does the list say?"*
+   - Same letter → **+4**. Different letter → **−1**. Nothing picked → **0**.
+4. Numbers work the same way: you typed `7.5`, the list says `7.5` (± tolerance allowed) → +4.
+
+The app never reads the question paper and never reads your mind — **your answer was already a letter/number the moment you tapped/typed it, and the key was already text the moment you pasted it.** Matching two symbols side by side is not intelligence; a calculator can do it. AI is only needed when a machine must *read* something messy (like a photo) — the app deliberately never does that.
+
+Note: JEE Main MCQs are **single-correct only** — one letter per question, by design. Multi-correct exists only in JEE Advanced, which this app excludes.
+
+### 1.2 Technical path (as built)
+```
+paste key text ──regex──▶ Map<Q# → "A"|"42.7">     (parseAnswerKey, PdfImport.tsx)
+your taps    ──persist every action──▶ session.answers { Q#: "B" | 42.7 }
+submit ──▶ for each slot:
+   unattempted (blank/null)            → marks 0
+   MCQ:  selected.toUpperCase() === key          → +4 : −1
+   NUM:  |selected − key| ≤ tolerance + 1e-9     → +4 : −1
+   accumulate score + subject_scores → ResponseRecord per question → analytics
+```
+The PDF is only ever **rendered** to a canvas (display) — never parsed. The only text parsing anywhere is the key regex. That's why it can't hallucinate or misread a question: there is nothing to misread.
+
+### 1.3 "But what if I upload an answer-key PDF?"
+- **Digital key PDF** (NTA official keys, most publisher keys — selectable text): pdf.js can extract the text layer and the same regex builds the list. **No AI needed** → added to Sprint A as "Key-PDF upload".
+- **Scanned/photo key** (image inside a PDF): unreadable without OCR = AI → **excluded forever**. Fallback: type/paste the key, or use the editable key grid (Sprint A) — 30 numbers takes ~2 minutes.
 
 ---
 
-## 3. What's already built (v1 audit — verified in browser)
+## 2. Research inputs
 
-| Module | Status |
+### 2.1 Codebase audit (every module read)
+| Module | Biggest gaps found |
 |---|---|
-| IndexedDB layer, 7 stores, refresh-safe sessions, change pub/sub | ✅ |
-| Syllabus seed: 65 chapters, Tier 1/2/3 badges, deleted chapters excluded | ✅ |
-| Question Bank: MCQ + numerical entry (tolerance), filters subject/chapter/tier | ✅ |
-| CBT Player: NTA palette, countdown + auto-submit, Save&Next / Mark&Next / Clear, per-question timing | ✅ |
-| Scoring +4/−1/0 both types; numerical tolerance (bank) | ✅ |
-| Results: score/accuracy/attempt-rate/negatives + per-Q review + tag buttons | ✅ |
-| Error tags C/F/A/R/T/G; **F-tag auto-appends formula sheet** | ✅ |
-| Page-Mode PDF import → player with page-following | ✅ |
-| External test log (Abhyas/SATHEE, 10 fields) feeding analytics | ✅ |
-| Dashboard: north-star (correct-under-time) + 5 spec metrics + Amber queue + revision-due strip | ✅ |
-| Syllabus tracker: status chain, auto-color, 1→1→3→7-day revision loop | ✅ |
-| Today card (4 blocks), JSON export/import, demo seed | ✅ |
+| App shell | No deep links (refresh loses view/results), discard has no confirm |
+| Dashboard/Today | Nothing actionable (can't click amber chapter → test it), no countdown/streak, timeline mixes different max-scores unnormalized |
+| Question Bank | **No edit** (typo = delete+retype), delete = 1-click destructive + dangling `question_ids` corrupt old tests, no image field, no KaTeX |
+| Test Create | "Full mock" template doesn't enforce 20+5, no shuffle, no paper preview |
+| Player | **Zero keyboard support**, no Previous button, purple "marked" hides "answered", PDF page-follow is estimate-only (no flip/zoom/pin) |
+| Results | Q numbers re-index by filter (not real numbers), no subject filter, PDF review shows placeholders only |
+| PDF Import | NTA official keys "(1)(2)(3)(4)" mis-parse as numericals, no PDF-numerical tolerance, no key grid editor, refresh before Start loses the file |
+| External Log | No edit, max_score hardcoded 300, no delete confirm |
+| Syllabus | Table forces horizontal scroll on phones, no reschedule/undo of revision loop, "DUE" doesn't show how overdue |
+| Formula Sheet | No manual add, no "learned" state, no link back to source test |
+| Data view | Export silently drops PDF blob, import accepts any JSON unvalidated, no backup nudge |
 
-Verified end-to-end in browser: seed → bank test → scoring → tags → formula sheet →
-external log (north-star 6→63) → PDF test with generated paper → resume-after-refresh →
-export. Console + lint clean.
+Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast systems mounted; ~40 unused shadcn components + Prisma/db.ts leftovers; no PWA manifest.
 
----
-
-## 4. Gap analysis — MVP → daily driver
-
-| # | Gap | Why it matters | Effort | Sprint |
-|---|---|---|---|---|
-| G1 | **Official NTA keys use (1)(2)(3)(4)** — parser mis-reads them as numerical answers | Correctness bug class: pasting a real NTA key silently mis-scores MCQs | S | A |
-| G2 | **No manual PDF page flip / zoom / page-pin** | Linear estimate lands wrong page on uneven papers → friction on every question | M | A |
-| G3 | **No tolerance for PDF numerical keys** | "7.5" vs "7.50 ± 0.05" style answers marked wrong unfairly | S | A |
-| G4 | **No storage-persist request / export nudge** | Browser can evict IndexedDB; data loss is the one unrecoverable failure | S | A |
-| G5 | **No full-paper mode** (one PDF, 3 sections P/C/M, 180 min) | The actual JEE simulation need; Abhyas covers mocks but not YOUR PYQ PDFs | M–L | B |
-| G6 | **No key-later / self-mark mode** | Many book PDFs have no pasteable key → currently unusable | M | C |
-| G7 | Image paste into bank questions | Math-heavy bank entries hard to type | S | C (optional) |
-| G8 | First-run hint strip | Onboarding polish | S | C (optional) |
-
-(S = ≤15 min, M = 15–40 min, L = 40–60 min within a session)
+### 2.2 Web research (Sep 2026)
+- **Competitors** (Melvano, JeeHub): sell "accuracy + speed + mistake-pattern tracking" and exam countdowns — our tracker does this locally and free; countdown validated as a motivating feature.
+- **Learning science**: retrieval practice (pulling answers from memory) beats re-reading — validates the 1-3-7 revision loop and motivates a new feature: **re-test your wrong questions**.
+- **Timeline**: JEE Main 2027 = Session 1 **January 2027**, Session 2 April 2027 → from today, Session 1 is ≈ **15 weeks** out. The app's job is compounding correct-under-time, not feature infinity.
 
 ---
 
-## 5. Roadmap — three sprints, then freeze
+## 3. Roadmap — 6 sprints (one 45–60 min session each), then freeze
 
-**Sprint A — correctness + PDF ergonomics (one 45–60 min session)**
-1. Key-format toggle in PDF setup: "options numbered (1)–(4) → A–D" + auto-suggest when ≥80% of numeric answers ∈ {1,2,3,4} *(G1)*
-2. PDF panel: prev/next page arrows + page input + zoom steps (1.0/1.4/1.8/2.2) + "pin this page to Q_n" override saved per question *(G2)*
-3. Default tolerance field for PDF numerical keys *(G3)*
-4. `navigator.storage.persist()` on first run + export nudge if last export > 7 days *(G4)*
+### Sprint A — PDF test correctness ("answer checking" cluster)
+| # | Item | Size |
+|---|---|---|
+| A1 | NTA option-number keys: toggle "(1)(2)(3)(4) → A/B/C/D" in PDF setup + auto-suggest when ≥80% of numeric answers ∈ {1,2,3,4} | S |
+| A2 | Tolerance field for PDF numerical keys (default 0) | S |
+| A3 | Editable key grid after paste (fix any mis-parse without retyping text) | S |
+| A4 | Key-PDF upload: pdf.js text-layer extraction → same regex (digital keys only; paste stays as fallback) | M |
+| A5 | Persist PDF blob at file-pick (refresh before Start no longer loses the file) | S |
 
-**Sprint B — full-paper mode (one session)**
-5. PDF setup gains section rows: `[subject, chapter?, first Q, last Q, start page]` × 3 → one palette with P/C/M tabs, duration presets (90/180), per-section subject scores feeding the same analytics *(G5)*
+### Sprint B — Player speed + full-paper mode
+| # | Item | Size |
+|---|---|---|
+| B1 | Keyboard: 1–4 / A–D select, Enter save&next, ← previous, M mark, C clear | S |
+| B2 | Previous button + NTA contrast fix (marked = purple outline over answered green) | S |
+| B3 | **Full-paper PDF mode**: section rows [P/C/M × first Q, last Q, start page] → one palette with P/C/M tabs, 90/180-min presets, per-section subject scores | M–L |
+| B4 | PDF panel: prev/next page arrows + page input + zoom steps + "pin page to Qn" override | M |
+| B5 | Timer color stages (amber at 10 min, red at 2) | S |
 
-**Sprint C — key-later + polish (one session)**
-6. Start PDF test without key → review screen shows Correct/Wrong toggles per Q; analytics recompute on mark *(G6)*
-7. Optional: clipboard image paste in bank entry *(G7)*; first-run hints *(G8)*
+### Sprint C — Safety & data integrity
+| # | Item | Size |
+|---|---|---|
+| C1 | Delete confirmations (question / formula / external log) + guard: warn when deleting a bank question used by saved tests | S |
+| C2 | Import validation (`_meta.app` check + per-store shape check) | S |
+| C3 | Export hygiene: encode kv blobs as base64 (or exclude with warning); backup nudge if last export > 7 days | S |
+| C4 | `navigator.storage.persist()` on first run | S |
+| C5 | Discard-session confirm + deep links (persist current view + resultsTestId in kv → refresh keeps context) | M |
+| C6 | Single scoring-config module (one source of truth for +4/−1/0; unlocks C7) | S |
+| C7 | External log: edit-in-place + configurable max_score | S |
 
-**Then FREEZE features.** Everything after this is bug-fixes only; studying wins.
+### Sprint D — The learning loop (retrieval practice)
+| # | Item | Size |
+|---|---|---|
+| D1 | **Retry-wrong-as-new-test**: button on Results → builds a new test from that test's wrong/unattempted questions | M |
+| D2 | Question Bank: edit-in-place + optional image per question (clipboard paste → dataURL; renders in bank + player) | M |
+| D3 | Results: real question numbers (store original index), subject filter chips, "next untagged" jump | S |
+| D4 | Key-later PDF mode: start without key → Correct/Wrong self-mark toggles in review; analytics recompute | M |
+| D5 | Action-linked analytics: amber / repeated-failure rows → one-click "Test this chapter" (pre-filled TestCreate) | S |
+| D6 | Formula sheet: manual add, "Mark learned", link back to source test | S |
+
+### Sprint E — Dashboard, tracker & motivation
+| # | Item | Size |
+|---|---|---|
+| E1 | **Exam countdown** (target date in kv, default JEE Main 2027 S1 ≈ Jan 22, editable) in header | S |
+| E2 | **Study streak** (Today card 4/4 → streak +1; shown next to countdown) | S |
+| E3 | Normalized timeline (% of max) + error tags as % | S |
+| E4 | Syllabus: mobile card layout (<md), "due N days ago" in red, reschedule date picker, notes debounce-save | M |
+| E5 | Today card: blur-save + stale-state race fix | S |
+
+### Sprint F — Polish & ship
+| # | Item | Size |
+|---|---|---|
+| F1 | PWA manifest + offline shell (true "local-first": app opens with no network) | S–M |
+| F2 | Mobile pass: Player palette sizing, Syllabus table | S |
+| F3 | Onboarding: first-run 3-step hint + link demo PDF + demo questions from Data tab | S |
+| F4 | (Optional) purge dead deps/code (prisma, unused ui components, dual toaster) | S |
+
+**Then FREEZE.** After Sprint F: bug fixes only. ~15 weeks to Session 1 — studying wins.
 
 ---
 
-## 6. The operating loop (what "fully usable" means in practice)
+## 4. Master verdict table (every module)
 
-**Daily (fits 6–8 h study, app touches ≈ 10 min):**
-- Open app → Today card ticks (Math 2h / Phy 1h45 / Chem 1h45 / Recall 30m)
-- End of a chapter block → 15–25 Q drill: coaching-module PDF via Page-Mode (25 min setup incl.) or bank test
-- Submit → tag every mistake (C/F/A/R/T/G) → F-tags land in formula sheet automatically
-- Revision-due strip: tonight's "same-night" revisions; tracker arms +1d → +3d → +7d automatically
+| Module | Verdict | Changes |
+|---|---|---|
+| App shell | **Upgrade** | Deep links, discard confirm, countdown+streak in header |
+| Dashboard / Today | **Upgrade** | Action-linked analytics, countdown, streak, normalized charts, race fixes |
+| Question Bank | **Upgrade** | Edit-in-place, image paste, delete safety |
+| Test Create | **Upgrade** | Full-mock enforcement warning, shuffle, paper preview (small) |
+| Player | **Upgrade** | Keyboard, Previous, NTA colors, full-paper mode, PDF nav/zoom/pin |
+| Results / Review | **Upgrade** | Real Q numbers, filters, retry-wrong, key-later self-mark |
+| PDF Import | **Upgrade** | NTA key mapping, tolerance, key grid, key-PDF upload, blob persistence |
+| External Log | **Upgrade** | Edit-in-place, configurable max, confirm |
+| Syllabus tracker | **Upgrade** | Mobile layout, reschedule, overdue display, test-this-chapter |
+| Formula Sheet | **Upgrade** | Manual add, learned state, source links |
+| Data view | **Upgrade** | Export/import hygiene, backup nudge, storage.persist |
+| PWA/offline | **Add** | Manifest + service worker shell |
+| Settings module | **Excluded** | Target date + backup state live in kv/header; a full settings page is not justified |
+| Dark mode | **Excluded** | Cost > value for one user |
+| Cross-device sync server | **Excluded** | JSON export/import stays the only sync (by design) |
 
-**Weekly:**
-- One full mock: Abhyas/SATHEE on their app → 2-min External Log entry, or your own PYQ PDF via full-paper mode (after Sprint B)
-- Dashboard review: score trend, subject accuracy, negatives, time-by-subject, repeated failures → Amber queue defines next week's fix list
+## 5. Excluded forever (unchanged + explicit)
+AI/OCR of scanned keys or papers · multi-correct questions (Advanced-only) · optional Section B (removed from 2025 pattern) · backend/auth/accounts · cloud sync · social · PYQ content database · video · native mobile app · notifications · paid anything.
+Phase-2 triggers unchanged: NTA regex paper-parser, mixed-test builder, AnkiConnect, formula print view.
 
-**North-star stays on the header:** cumulative questions correctly solved under time.
-
----
-
-## 7. Acceptance checklist — "fully usable for a JEE aspirant"
-
-- [ ] A PDF paper → timed CBT in < 60 s of setup (today: ✅)
-- [ ] Official NTA key pastes score correctly (Sprint A)
-- [ ] Page-follow never traps you on the wrong page (Sprint A)
-- [ ] One 75-Q PYQ PDF runs as a single 180-min test with P/C/M sections (Sprint B)
-- [ ] A keyless book exercise still produces tagged analytics (Sprint C)
-- [ ] Data survives browser restarts and is exportable in one click (✅ + Sprint A nudge)
-- [ ] Daily loop (§6) runs without touching anything outside the app
-
-## 8. Still not building (unchanged from spec v2)
-SRS/Anki integration, PYQ browser, two-way calendar, backend/auth/accounts, paid AI,
-social, video hosting, mobile app, cloud deploy, Advanced-style optional questions.
-Phase-2 triggers (only if real usage demands): NTA regex paper-parser, mixed-test builder,
-AnkiConnect button, formula-sheet print view.
+## 6. Acceptance checklist v3 ("fully functional for an aspirant")
+- [ ] Paste OR upload a digital NTA key → scores correctly, every format (Sprint A)
+- [ ] A 75-Q PYQ PDF runs as one 180-min test with P/C/M sections (Sprint B)
+- [ ] Player fully keyboard-driven; page-follow never traps you (Sprint B)
+- [ ] No destructive action without confirm; data export/import round-trips losslessly (Sprint C)
+- [ ] Wrong questions re-testable in one click; every module's mistakes feed the loop (Sprint D)
+- [ ] Header shows days-left + streak; every analytics row is actionable (Sprint E)
+- [ ] App opens offline from home screen (Sprint F)
+- [ ] Daily loop: Today card → drill (PDF/bank) → tag → revise due → dashboard, ≤10 min app time/day

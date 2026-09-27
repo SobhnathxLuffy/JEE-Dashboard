@@ -1,7 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,6 +17,14 @@ export const metadata: Metadata = {
   description:
     "Local-first JEE prep console: CBT player, PDF page-mode tests, error tagging, Amber-first repair queue, 1-3-7 revision loop. All data stays in your browser.",
   keywords: ["JEE", "study app", "CBT", "error tagging", "IndexedDB"],
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/logo.svg" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#047857",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -31,7 +38,6 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
-        <Toaster />
       </body>
     </html>
   );

@@ -12,8 +12,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
 import { EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
 import { useLive, put, del } from "@/lib/idb";
@@ -27,6 +39,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
   const [source, setSource] = useState<(typeof SOURCES)[number]>("Abhyas");
   const [sourceOther, setSourceOther] = useState("");
   const [duration, setDuration] = useState("180");
+  const [maxScore, setMaxScore] = useState("300");
   const [score, setScore] = useState("");
   const [pScore, setPScore] = useState("");
   const [cScore, setCScore] = useState("");
@@ -34,6 +47,10 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
   const [attempts, setAttempts] = useState("");
   const [wrong, setWrong] = useState("");
   const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const maxNum = Math.max(1, Number(maxScore) || 300);
+  const perMax = Math.ceil(maxNum / 3);
 
   const external = useMemo(
     () =>
@@ -43,16 +60,72 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
     [tests]
   );
 
-  const best = useMemo(
-    () => external.reduce((m, t) => Math.max(m, t.score), 0),
-    [external]
-  );
+  const best = useMemo(() => {
+    return external.reduce<TestRecord | null>((m, t) => {
+      const s = t.score ?? 0; // null = pending self-mark (never for external, but be safe)
+      if (m === null || s > (m.score ?? 0)) return t;
+      return m;
+    }, null);
+  }, [external]);
   const latest = external[0];
+
+  function resetForm() {
+    setDate(todayStr());
+    setSource("Abhyas");
+    setSourceOther("");
+    setDuration("180");
+    setMaxScore("300");
+    setScore("");
+    setPScore("");
+    setCScore("");
+    setMScore("");
+    setAttempts("");
+    setWrong("");
+    setName("");
+  }
+
+  function startEdit(t: TestRecord) {
+    setEditingId(t.id);
+    setDate(t.date);
+    const known = SOURCES.find((s) => s === t.source);
+    if (known) {
+      setSource(known);
+      setSourceOther("");
+    } else {
+      setSource("Other");
+      setSourceOther(t.source);
+    }
+    setDuration(String(t.duration_min));
+    setMaxScore(String(t.max_score));
+    setScore(t.score === null ? "" : String(t.score));
+    setPScore(t.subject_scores.Physics !== undefined ? String(t.subject_scores.Physics) : "");
+    setCScore(t.subject_scores.Chemistry !== undefined ? String(t.subject_scores.Chemistry) : "");
+    setMScore(t.subject_scores.Mathematics !== undefined ? String(t.subject_scores.Mathematics) : "");
+    setAttempts(t.external_meta ? String(t.external_meta.attempts) : "");
+    setWrong(t.external_meta ? String(t.external_meta.wrong) : "");
+    setName(t.name);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    resetForm();
+  }
 
   async function save() {
     const sc = Number(score);
-    if (Number.isNaN(sc)) {
+    if (score.trim() === "" || Number.isNaN(sc)) {
       toast.error("Total score must be a number");
+      return;
+    }
+    if (sc > maxNum) {
+      toast.error(`Total score can't exceed the max (${maxNum})`);
+      return;
+    }
+    const ps = Number(pScore) || 0;
+    const cs = Number(cScore) || 0;
+    const ms = Number(mScore) || 0;
+    if (ps > perMax || cs > perMax || ms > perMax) {
+      toast.error(`Subject scores can't exceed ${perMax} (a third of the ${maxNum} max)`);
       return;
     }
     const att = attempts.trim() === "" ? undefined : Number(attempts);
@@ -62,33 +135,33 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
       return;
     }
     const src = source === "Other" ? sourceOther.trim() || "Other" : source;
-    const record: TestRecord = {
-      id: uid(),
+    const common = {
       date: date || todayStr(),
-      created_at: Date.now(),
       name: name.trim() || `${src} full mock`,
       source: src,
-      type: "external",
+      type: "external" as const,
       duration_min: Number(duration) || 180,
       score: sc,
-      max_score: 300,
-      subject_scores: {
-        Physics: Number(pScore) || 0,
-        Chemistry: Number(cScore) || 0,
-        Mathematics: Number(mScore) || 0,
-      },
+      max_score: maxNum,
+      subject_scores: { Physics: ps, Chemistry: cs, Mathematics: ms },
       external_meta:
         att !== undefined && wr !== undefined ? { attempts: att, wrong: wr } : undefined,
     };
-    await put("tests", record);
-    toast.success("External test logged — graphs updated");
-    setScore("");
-    setPScore("");
-    setCScore("");
-    setMScore("");
-    setAttempts("");
-    setWrong("");
-    setName("");
+    if (editingId) {
+      const existing = tests.find((t) => t.id === editingId);
+      if (!existing) {
+        toast.error("Entry no longer exists");
+        cancelEdit();
+        return;
+      }
+      await put("tests", { ...existing, ...common });
+      toast.success("Entry updated — graphs recalculated");
+    } else {
+      const record: TestRecord = { id: uid(), created_at: Date.now(), ...common };
+      await put("tests", record);
+      toast.success("External test logged — graphs updated");
+    }
+    cancelEdit();
   }
 
   return (
@@ -104,7 +177,22 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
       />
 
       <div className="grid lg:grid-cols-5 gap-6">
-        <SectionCard title="New entry" subtitle="~10 fields, one minute" className="lg:col-span-2">
+        <SectionCard
+          title={editingId ? "Edit entry" : "New entry"}
+          subtitle={editingId ? "updating an existing mock — Update to save" : "~10 fields, one minute"}
+          className="lg:col-span-2"
+          action={
+            editingId ? (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="text-xs text-stone-500 underline hover:text-stone-700"
+              >
+                Cancel edit
+              </button>
+            ) : undefined
+          }
+        >
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Date</Label>
@@ -132,19 +220,24 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
               <Input value={duration} onChange={(e) => setDuration(e.target.value)} inputMode="numeric" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Total score / 300</Label>
+              <Label className="text-xs">Total max</Label>
+              <Input value={maxScore} onChange={(e) => setMaxScore(e.target.value)} inputMode="numeric" />
+              <p className="text-[11px] text-stone-400">subject max shown as ⌈max/3⌉</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Total score / {maxNum}</Label>
               <Input value={score} onChange={(e) => setScore(e.target.value)} inputMode="numeric" placeholder="e.g. 187" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Physics score / 100</Label>
+              <Label className="text-xs">Physics score / {perMax}</Label>
               <Input value={pScore} onChange={(e) => setPScore(e.target.value)} inputMode="numeric" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Chemistry score / 100</Label>
+              <Label className="text-xs">Chemistry score / {perMax}</Label>
               <Input value={cScore} onChange={(e) => setCScore(e.target.value)} inputMode="numeric" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Maths score / 100</Label>
+              <Label className="text-xs">Maths score / {perMax}</Label>
               <Input value={mScore} onChange={(e) => setMScore(e.target.value)} inputMode="numeric" />
             </div>
             <div className="space-y-1.5">
@@ -161,7 +254,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
             </div>
           </div>
           <Button onClick={save} className="w-full mt-4 bg-emerald-700 hover:bg-emerald-800">
-            Log test
+            {editingId ? "Update test" : "Log test"}
           </Button>
           <p className="text-[11px] text-stone-400 mt-3">
             Correct-under-time from external mocks is estimated as attempts − wrong. Marks lost to
@@ -172,7 +265,11 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
         <div className="lg:col-span-3 space-y-6">
           <div className="grid grid-cols-2 gap-3">
             <StatCard label="Mocks logged" value={external.length} />
-            <StatCard label="Best score" value={`${best}/300`} tone="good" />
+            <StatCard
+              label="Best score"
+              value={best && best.score !== null ? `${best.score}/${best.max_score}` : "—"}
+              tone="good"
+            />
           </div>
           <SectionCard title="Logged external tests">
             {external.length === 0 ? (
@@ -196,7 +293,13 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
                   </thead>
                   <tbody>
                     {external.map((t) => (
-                      <tr key={t.id} className="border-t border-stone-100">
+                      <tr
+                        key={t.id}
+                        className={cn(
+                          "border-t border-stone-100",
+                          editingId === t.id && "bg-emerald-50/60"
+                        )}
+                      >
                         <td className="py-2 pr-3 text-stone-500 whitespace-nowrap">{t.date}</td>
                         <td className="py-2 pr-3">
                           <Badge variant="outline" className="border-stone-300 text-stone-600">
@@ -204,8 +307,8 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
                           </Badge>
                         </td>
                         <td className="py-2 pr-3 text-right font-semibold tabular-nums">
-                          {t.score}
-                          <span className="text-stone-400 font-normal">/300</span>
+                          {t.score === null ? "pending" : t.score}
+                          <span className="text-stone-400 font-normal">/{t.max_score}</span>
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-stone-600">{t.subject_scores.Physics ?? "—"}</td>
                         <td className="py-2 pr-3 text-right tabular-nums text-stone-600">{t.subject_scores.Chemistry ?? "—"}</td>
@@ -213,18 +316,54 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
                         <td className="py-2 pr-3 text-right tabular-nums text-stone-500">
                           {t.external_meta ? `${t.external_meta.attempts} / ${t.external_meta.wrong}` : "—"}
                         </td>
-                        <td className="py-2 text-right">
+                        <td className="py-2 text-right whitespace-nowrap">
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="text-red-500 hover:text-red-600 hover:bg-red-50"
                             onClick={() => {
-                              del("tests", t.id);
-                              toast.success("Entry removed");
+                              if (editingId === t.id) {
+                                cancelEdit();
+                              } else {
+                                startEdit(t);
+                              }
                             }}
                           >
-                            Delete
+                            {editingId === t.id ? "Editing…" : "Edit"}
                           </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                              >
+                                Delete
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  “{t.name}” ({t.date},{" "}
+                                  {t.score === null ? "pending" : `${t.score}/${t.max_score}`}) will be
+                                  removed and every graph recalculated. This cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Keep it</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-red-600 hover:bg-red-700"
+                                  onClick={() => {
+                                    del("tests", t.id);
+                                    toast.success("Entry removed");
+                                    if (editingId === t.id) cancelEdit();
+                                  }}
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </td>
                       </tr>
                     ))}
@@ -235,7 +374,8 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
           </SectionCard>
           {latest ? (
             <p className="text-xs text-stone-400">
-              Last logged: <strong className="text-stone-600">{latest.name}</strong> on {latest.date} — {latest.score}/300.
+              Last logged: <strong className="text-stone-600">{latest.name}</strong> on {latest.date} —{" "}
+              {latest.score === null ? "pending" : `${latest.score}/${latest.max_score}`}.
             </p>
           ) : null}
         </div>

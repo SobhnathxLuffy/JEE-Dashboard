@@ -160,14 +160,61 @@ export async function kvDel(key: string): Promise<void> {
   await del("kv", key);
 }
 
-// ─── session helpers ─────────────────────────────────────────────────────────
+// ─── session helpers (legacy sessions are normalized on read) ────────────────
 export async function saveSession(s: ActiveSession): Promise<void> {
   await kvSet("active-session", s);
 }
 
+/** Defensively normalize legacy session shapes so old data resumes without crashing. */
+function normalizeSession(raw: ActiveSession): ActiveSession {
+  const s: ActiveSession = {
+    ...raw,
+    answers: raw.answers ?? {},
+    marked: Array.isArray(raw.marked) ? raw.marked : [],
+    q_times: raw.q_times ?? {},
+    current: typeof raw.current === "number" ? raw.current : 0,
+  };
+  const meta = s.pdf_meta;
+  if (s.mode === "pdf" && meta) {
+    const key = Array.isArray(meta.key) ? meta.key : [];
+    s.pdf_meta = {
+      ...meta,
+      // legacy key entries {no, answer} → {no, answer, answers:[answer]}
+      key: key
+        .filter((k) => k && typeof k.no === "number")
+        .map((k) => {
+          const answer =
+            typeof k.answer === "string" ? k.answer : (k.answers?.[0] ?? "");
+          return {
+            ...k,
+            answer,
+            answers:
+              Array.isArray(k.answers) && k.answers.length > 0 ? k.answers : [answer],
+          };
+        }),
+      first_q: typeof meta.first_q === "number" ? meta.first_q : 1,
+      // legacy pdf_meta without sections → synthesize the single-section equivalent
+      sections:
+        Array.isArray(meta.sections) && meta.sections.length > 0
+          ? meta.sections
+          : [
+              {
+                subject: meta.subject,
+                chapter: meta.chapter,
+                first_q: 1,
+                last_q: meta.total_questions,
+                start_page: meta.start_page,
+                end_page: meta.end_page,
+              },
+            ],
+    };
+  }
+  return s;
+}
+
 export async function loadSession(): Promise<ActiveSession | undefined> {
   const s = await kvGet<ActiveSession>("active-session");
-  return s;
+  return s ? normalizeSession(s) : undefined;
 }
 
 export async function clearSession(): Promise<void> {

@@ -36,7 +36,30 @@ export interface Question {
   chapter: string;
   source: string;
   source_url?: string;
+  image?: string; // optional figure as dataURL, rendered in bank + player
   created_at: number;
+  updated_at?: number; // set when the question is edited in place (bank, Sprint D2)
+}
+
+/** One answer-key entry for a PDF paper question (paper numbering). */
+export interface PdfKeyEntry {
+  no: number;
+  /** primary/legacy single value: "B" or "42.5" ("" for bonus-only entries) */
+  answer: string;
+  /** full accepted set — ["B","C"] for revised NTA keys; omitted when single */
+  answers?: string[];
+  /** dropped question — everyone gets +4 */
+  bonus?: boolean;
+}
+
+/** One section of a PDF paper (single-subject mode = 1 element, full paper = 3). */
+export interface PdfSection {
+  subject: Subject;
+  chapter: string;
+  first_q: number; // paper numbering, inclusive
+  last_q: number; // paper numbering, inclusive
+  start_page: number;
+  end_page: number;
 }
 
 export interface TestRecord {
@@ -47,7 +70,7 @@ export interface TestRecord {
   source: string; // in-app / pdf filename / Abhyas / SATHEE / Allen / other
   type: TestType;
   duration_min: number;
-  score: number;
+  score: number | null; // null = key-later test awaiting self-mark
   max_score: number;
   subject_scores: Partial<Record<Subject, number>>;
   // in-app CBT
@@ -59,7 +82,12 @@ export interface TestRecord {
     start_page: number;
     end_page: number;
     total_questions: number;
-    key: { no: number; answer: string }[]; // "A".."D" or numeric string
+    key: PdfKeyEntry[]; // "A".."D" or numeric string (+ answers[]/bonus flags)
+    sections?: PdfSection[]; // 1 = single-subject behavior, 3 = full paper
+    first_q?: number; // paper numbering offset (default 1); palette shows first_q..first_q+total-1
+    tolerance?: number; // default 0; applies to numerical key entries
+    key_later?: boolean; // true = no key provided; self-mark in Results
+    page_pins?: Record<string, number>; // paper question number (string) → PDF page override
   };
   // external summary
   external_meta?: {
@@ -73,8 +101,11 @@ export interface ResponseRecord {
   test_id: string;
   question_id: string; // bank question id, or `pdf:${testId}:${no}` for pdf tests
   selected: number | string | null; // option index / numeric answer / null = unattempted
-  correct: boolean;
+  correct: boolean | null; // null = pending self-mark (key-later mode)
   attempted: boolean;
+  q_no?: number; // original question number as shown in the test/paper (filled at submit)
+  note?: string; // optional one-line insight (Results review)
+  photo?: string; // optional solution photo dataURL (Results review)
   time_spent: number; // seconds
   error_tag: ErrorTag | null;
   // denormalized so analytics never needs a join with pdf meta
@@ -123,6 +154,7 @@ export interface FormulaEntry {
   subject: Subject;
   chapter: string;
   snippet: string;
+  learned?: boolean; // "Mark learned" state
   created_at: number;
 }
 

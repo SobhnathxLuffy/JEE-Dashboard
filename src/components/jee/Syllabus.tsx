@@ -1,7 +1,9 @@
 "use client";
 
 // ─── Syllabus tracker: tiers, statuses, auto-color, revision loop, notes ────
-import { useMemo, useState } from "react";
+// E4: mobile card layout (<md), overdue clarity ("DUE — N days ago"),
+// per-row reschedule date input, debounce-saved notes.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,7 +17,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { EmptyNote, HealthChip, PageTitle, SectionCard, StatusBadge, TierBadge } from "./shared";
+import {
+  EmptyNote,
+  HealthChip,
+  PageTitle,
+  SectionCard,
+  StatusBadge,
+  SubjectDot,
+  TierBadge,
+} from "./shared";
 import { useLive, put } from "@/lib/idb";
 import {
   CHAPTER_STATUSES,
@@ -90,36 +100,56 @@ export function SyllabusView() {
     return { green, amber, red, gated, due };
   }, [health, syllabus, today]);
 
-  async function update(row: SyllabusRow, patch: Partial<SyllabusRow>) {
-    // starting work on a chapter arms the revision loop: first pass due SAME NIGHT
-    if (patch.status && patch.next_revision === undefined && row.next_revision === null) {
-      if (patch.status === "Learning" || patch.status === "PYQs Done") {
-        await put("syllabus", {
-          ...row,
-          ...patch,
-          revision_stage: 0,
-          next_revision: todayStr(),
-        });
-        return;
+  const update = useCallback(
+    async (row: SyllabusRow, patch: Partial<SyllabusRow>) => {
+      // starting work on a chapter arms the revision loop: first pass due SAME NIGHT
+      if (patch.status && patch.next_revision === undefined && row.next_revision === null) {
+        if (patch.status === "Learning" || patch.status === "PYQs Done") {
+          await put("syllabus", {
+            ...row,
+            ...patch,
+            revision_stage: 0,
+            next_revision: todayStr(),
+          });
+          return;
+        }
       }
-    }
-    await put("syllabus", { ...row, ...patch });
-  }
+      await put("syllabus", { ...row, ...patch });
+    },
+    []
+  );
 
-  async function markRevised(row: SyllabusRow) {
-    const stage = Math.min(row.revision_stage + 1, REVISION_INTERVALS_DAYS.length - 1);
-    const nextDate = addDays(todayStr(), REVISION_INTERVALS_DAYS[stage]);
-    await update(row, {
-      last_revised: todayStr(),
-      revision_stage: stage,
-      next_revision: nextDate,
-    });
-    toast.success(
-      REVISION_INTERVALS_DAYS[stage] === 0
-        ? "Revisit scheduled for tonight"
-        : `Next revision in ${REVISION_INTERVALS_DAYS[stage]} day(s) — the 1-3-7 loop continues`
-    );
-  }
+  const markRevised = useCallback(
+    async (row: SyllabusRow) => {
+      const stage = Math.min(row.revision_stage + 1, REVISION_INTERVALS_DAYS.length - 1);
+      const nextDate = addDays(todayStr(), REVISION_INTERVALS_DAYS[stage]);
+      await update(row, {
+        last_revised: todayStr(),
+        revision_stage: stage,
+        next_revision: nextDate,
+      });
+      toast.success(
+        REVISION_INTERVALS_DAYS[stage] === 0
+          ? "Revisit scheduled for tonight"
+          : `Next revision in ${REVISION_INTERVALS_DAYS[stage]} day(s) — the 1-3-7 loop continues`
+      );
+    },
+    [update]
+  );
+
+  // E4c: reschedule — the date input writes next_revision directly
+  const reschedule = useCallback(
+    async (row: SyllabusRow, date: string) => {
+      if (!date || date === row.next_revision) return; // cleared input = no-op, snaps back
+      await update(row, { next_revision: date });
+      toast.success(
+        date === todayStr()
+          ? "Revision moved to tonight"
+          : `Next revision set to ${date}`
+      );
+    },
+    [update]
+  );
 
   return (
     <div className="space-y-6">
@@ -198,122 +228,322 @@ export function SyllabusView() {
         {rows.length === 0 ? (
           <EmptyNote>No chapters match these filters.</EmptyNote>
         ) : (
-          <div className="overflow-x-auto max-h-[620px] overflow-y-auto border border-stone-100 rounded-lg">
-            <table className="w-full text-sm min-w-[860px]">
-              <thead className="text-left text-xs text-stone-400 uppercase bg-stone-50 sticky top-0">
-                <tr>
-                  <th className="py-2 px-3">Chapter</th>
-                  <th className="py-2 px-3">Tier</th>
-                  <th className="py-2 px-3">Accuracy</th>
-                  <th className="py-2 px-3">Status</th>
-                  <th className="py-2 px-3">Revision</th>
-                  <th className="py-2 px-3">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const h = health.get(`${r.subject}::${r.chapter}`);
-                  const isDue = r.next_revision !== null && r.next_revision <= today;
-                  return (
-                    <tr key={r.id} className="border-t border-stone-100 align-top hover:bg-stone-50/60">
-                      <td className="py-2.5 px-3">
-                        <div className="font-medium text-stone-800">{r.chapter}</div>
-                        <div className="text-[11px] text-stone-400">{r.subject}</div>
-                      </td>
-                      <td className="py-2.5 px-3"><TierBadge tier={r.tier} /></td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <HealthChip color={h?.color ?? "gray"} accuracy={h ? h.accuracy : null} />
-                        </div>
-                        {h ? (
-                          <div className="text-[10px] text-stone-400 mt-0.5">
-                            {h.correct}/{h.attempted} attempted
+          <>
+            {/* E4a: stacked chapter cards below md — no horizontal scrolling on phones */}
+            <div className="md:hidden space-y-3">
+              {rows.map((r) => (
+                <ChapterCard
+                  key={r.id}
+                  row={r}
+                  health={health.get(`${r.subject}::${r.chapter}`)}
+                  today={today}
+                  notesOpen={notesOpen === r.id}
+                  onOpenNotes={() => setNotesOpen(r.id)}
+                  onCloseNotes={() => setNotesOpen(null)}
+                  onUpdate={update}
+                  onMarkRevised={markRevised}
+                  onReschedule={reschedule}
+                />
+              ))}
+            </div>
+
+            {/* wide table stays for md+ */}
+            <div className="hidden md:block overflow-x-auto max-h-[620px] overflow-y-auto border border-stone-100 rounded-lg">
+              <table className="w-full text-sm min-w-[900px]">
+                <thead className="text-left text-xs text-stone-400 uppercase bg-stone-50 sticky top-0">
+                  <tr>
+                    <th className="py-2 px-3">Chapter</th>
+                    <th className="py-2 px-3">Tier</th>
+                    <th className="py-2 px-3">Accuracy</th>
+                    <th className="py-2 px-3">Status</th>
+                    <th className="py-2 px-3">Revision</th>
+                    <th className="py-2 px-3">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const h = health.get(`${r.subject}::${r.chapter}`);
+                    return (
+                      <tr key={r.id} className="border-t border-stone-100 align-top hover:bg-stone-50/60">
+                        <td className="py-2.5 px-3">
+                          <div className="font-medium text-stone-800">{r.chapter}</div>
+                          <div className="text-[11px] text-stone-400">{r.subject}</div>
+                        </td>
+                        <td className="py-2.5 px-3"><TierBadge tier={r.tier} /></td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <HealthChip color={h?.color ?? "gray"} accuracy={h ? h.accuracy : null} />
                           </div>
-                        ) : null}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <Select
-                          value={r.status}
-                          onValueChange={(v) => void update(r, { status: v as ChapterStatus })}
-                        >
-                          <SelectTrigger className="h-8 text-xs w-40" aria-label={`Status of ${r.chapter}`}>
-                            <StatusBadge status={r.status} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CHAPTER_STATUSES.map((s) => (
-                              <SelectItem key={s} value={s}>{s}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {r.next_revision ? (
-                          <div className="flex flex-col gap-1">
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "w-fit",
-                                isDue
-                                  ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                                  : "border-stone-200 text-stone-400"
-                              )}
-                            >
-                              {isDue
-                                ? r.next_revision === today
-                                  ? "due tonight"
-                                  : "DUE"
-                                : `in ${diffDays(today, r.next_revision)}d`}
-                            </Badge>
-                            <span className="text-[10px] text-stone-400">
-                              stage {r.revision_stage + 1}/4
-                              {r.last_revised ? ` · last ${r.last_revised}` : ""}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-stone-300">not started loop</span>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-1 h-7 text-[11px]"
-                          onClick={() => void markRevised(r)}
-                        >
-                          Mark revised
-                        </Button>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {notesOpen === r.id ? (
-                          <div className="w-64 space-y-1.5">
-                            <Textarea
-                              defaultValue={r.notes}
-                              rows={3}
-                              autoFocus
-                              onBlur={(e) => {
-                                void update(r, { notes: e.target.value });
-                                setNotesOpen(null);
-                                if (e.target.value !== r.notes) toast.success("Notes saved");
-                              }}
-                              placeholder="weak spots, traps, key formulas…"
-                            />
-                            <span className="text-[10px] text-stone-400">click away to save</span>
-                          </div>
-                        ) : (
-                          <button
-                            className="text-left text-xs text-stone-400 hover:text-stone-700 max-w-56 truncate block"
-                            onClick={() => setNotesOpen(r.id)}
+                          {h ? (
+                            <div className="text-[10px] text-stone-400 mt-0.5">
+                              {h.correct}/{h.attempted} attempted
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <Select
+                            value={r.status}
+                            onValueChange={(v) => void update(r, { status: v as ChapterStatus })}
                           >
-                            {r.notes || "+ add note"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            <SelectTrigger className="h-8 text-xs w-40" aria-label={`Status of ${r.chapter}`}>
+                              <StatusBadge status={r.status} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CHAPTER_STATUSES.map((s) => (
+                                <SelectItem key={s} value={s}>{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <RevisionControls
+                            row={r}
+                            today={today}
+                            onMarkRevised={markRevised}
+                            onReschedule={reschedule}
+                          />
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {notesOpen === r.id ? (
+                            <div className="w-64">
+                              <NotesEditor
+                                initial={r.notes}
+                                onSave={(text) => void update(r, { notes: text })}
+                                onDone={() => setNotesOpen(null)}
+                              />
+                            </div>
+                          ) : (
+                            <button
+                              className="text-left text-xs text-stone-400 hover:text-stone-700 max-w-56 truncate block"
+                              onClick={() => setNotesOpen(r.id)}
+                            >
+                              {r.notes || "+ add note"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </SectionCard>
+    </div>
+  );
+}
+
+// ─── E4b: revision-due badge with overdue clarity ────────────────────────────
+function DueBadge({ next, today }: { next: string | null; today: string }) {
+  if (!next) {
+    return <span className="text-[11px] text-stone-300">not started loop</span>;
+  }
+  if (next === today) {
+    return (
+      <Badge variant="outline" className="w-fit border-emerald-400 bg-emerald-50 text-emerald-700">
+        due tonight
+      </Badge>
+    );
+  }
+  if (next < today) {
+    const n = diffDays(next, today);
+    return (
+      <Badge variant="outline" className="w-fit border-red-300 bg-red-50 text-red-700">
+        DUE — {n} {n === 1 ? "day" : "days"} ago
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="w-fit border-stone-200 text-stone-400">
+      in {diffDays(today, next)}d
+    </Badge>
+  );
+}
+
+// ─── E4c: revision controls — badge + reschedule date input + mark revised ──
+function RevisionControls({
+  row,
+  today,
+  onMarkRevised,
+  onReschedule,
+}: {
+  row: SyllabusRow;
+  today: string;
+  onMarkRevised: (r: SyllabusRow) => void | Promise<void>;
+  onReschedule: (r: SyllabusRow, date: string) => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <DueBadge next={row.next_revision} today={today} />
+      {row.next_revision ? (
+        <span className="text-[10px] text-stone-400">
+          stage {row.revision_stage + 1}/4
+          {row.last_revised ? ` · last ${row.last_revised}` : ""}
+        </span>
+      ) : null}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Input
+          type="date"
+          value={row.next_revision ?? ""}
+          onChange={(e) => void onReschedule(row, e.target.value)}
+          className="h-7 w-[8.5rem] px-2 text-[11px]"
+          aria-label={`Reschedule revision for ${row.chapter}`}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-[11px]"
+          onClick={() => void onMarkRevised(row)}
+        >
+          Mark revised
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── E4d: notes editor — debounce-save 600ms, flush on unmount ──────────────
+function NotesEditor({
+  initial,
+  onSave,
+  onDone,
+}: {
+  initial: string;
+  onSave: (text: string) => void;
+  onDone: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const dirtyRef = useRef(false);
+  const textRef = useRef(initial);
+  const saveRef = useRef(onSave);
+  const toastedRef = useRef(false);
+
+  // keep the latest text + saver reachable for the unmount flush (outside render)
+  useEffect(() => {
+    textRef.current = text;
+    saveRef.current = onSave;
+  });
+
+  const flush = useCallback((value: string) => {
+    dirtyRef.current = false;
+    saveRef.current(value);
+    if (!toastedRef.current) {
+      toastedRef.current = true;
+      toast.success("Notes saved");
+    }
+  }, []);
+
+  // debounce-save 600ms after typing stops
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+    const t = setTimeout(() => flush(text), 600);
+    return () => clearTimeout(t);
+  }, [text, flush]);
+
+  // flush pending edits when the editor is closed/unmounted
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current) flush(textRef.current);
+    };
+  }, [flush]);
+
+  return (
+    <div className="space-y-1.5">
+      <Textarea
+        value={text}
+        rows={3}
+        autoFocus
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setText(e.target.value);
+        }}
+        placeholder="weak spots, traps, key formulas…"
+        aria-label="Chapter notes"
+      />
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-stone-400">auto-saves as you type</span>
+        <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── E4a: mobile chapter card (below md) ─────────────────────────────────────
+function ChapterCard({
+  row,
+  health,
+  today,
+  notesOpen,
+  onOpenNotes,
+  onCloseNotes,
+  onUpdate,
+  onMarkRevised,
+  onReschedule,
+}: {
+  row: SyllabusRow;
+  health: ChapterHealth | undefined;
+  today: string;
+  notesOpen: boolean;
+  onOpenNotes: () => void;
+  onCloseNotes: () => void;
+  onUpdate: (row: SyllabusRow, patch: Partial<SyllabusRow>) => void | Promise<void>;
+  onMarkRevised: (r: SyllabusRow) => void | Promise<void>;
+  onReschedule: (r: SyllabusRow, date: string) => void | Promise<void>;
+}) {
+  return (
+    <div className="border border-stone-200 rounded-lg bg-white p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-medium text-sm text-stone-800 flex items-center gap-1">
+            <SubjectDot subject={row.subject} />
+            <span className="truncate">{row.chapter}</span>
+          </div>
+          <div className="text-[11px] text-stone-400 mt-0.5">
+            {row.subject}
+            {health ? ` · ${health.correct}/${health.attempted} attempted` : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <TierBadge tier={row.tier} />
+          <HealthChip color={health?.color ?? "gray"} accuracy={health ? health.accuracy : null} />
+        </div>
+      </div>
+
+      <Select
+        value={row.status}
+        onValueChange={(v) => void onUpdate(row, { status: v as ChapterStatus })}
+      >
+        <SelectTrigger className="h-8 text-xs w-full" aria-label={`Status of ${row.chapter}`}>
+          <StatusBadge status={row.status} />
+        </SelectTrigger>
+        <SelectContent>
+          {CHAPTER_STATUSES.map((s) => (
+            <SelectItem key={s} value={s}>{s}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <RevisionControls row={row} today={today} onMarkRevised={onMarkRevised} onReschedule={onReschedule} />
+
+      <div className="border-t border-stone-100 pt-2">
+        {notesOpen ? (
+          <NotesEditor
+            initial={row.notes}
+            onSave={(text) => void onUpdate(row, { notes: text })}
+            onDone={onCloseNotes}
+          />
+        ) : (
+          <button
+            className="text-left text-xs text-stone-400 hover:text-stone-700 w-full truncate"
+            onClick={onOpenNotes}
+          >
+            {row.notes || "+ add note"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 // ─── Question Bank: manual entry (incl. numerical tolerance) + filterable list ──
-import { useMemo, useState } from "react";
+// Sprint C/D: delete confirm with saved-test usage warning (C1), edit-in-place
+// and optional question figures (D2).
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,10 +15,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { EmptyNote, PageTitle, SectionCard, SubjectDot, TierBadge } from "./shared";
 import { useLive, put, del } from "@/lib/idb";
+import { fileToDataUrl } from "@/lib/image";
 import { SUBJECTS, uid, type Question, type Subject } from "@/lib/types";
 
 const OPTION_LETTERS = ["A", "B", "C", "D"];
@@ -24,6 +39,7 @@ const OPTION_LETTERS = ["A", "B", "C", "D"];
 export function QuestionBankView() {
   const questions = useLive("questions");
   const syllabus = useLive("syllabus");
+  const tests = useLive("tests");
 
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [filterChapter, setFilterChapter] = useState<string>("all");
@@ -39,6 +55,12 @@ export function QuestionBankView() {
   const [numAnswer, setNumAnswer] = useState("");
   const [tolerance, setTolerance] = useState("");
   const [source, setSource] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+
+  // D2a edit-in-place
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const chaptersForSubject = useMemo(
     () =>
@@ -74,23 +96,48 @@ export function QuestionBankView() {
       .sort((a, b) => b.created_at - a.created_at);
   }, [questions, filterSubject, filterChapter, filterTier, search, tierOf]);
 
-  async function addQuestion() {
+  function resetForm() {
+    setText("");
+    setOptions(["", "", "", ""]);
+    setAnswerIdx(0);
+    setNumAnswer("");
+    setTolerance("");
+    setSource("");
+    setImage(null);
+    setEditingId(null);
+  }
+
+  function startEdit(q: Question) {
+    setEditingId(q.id);
+    setSubject(q.subject);
+    setChapter(q.chapter);
+    setType(q.type);
+    setText(q.question);
+    setOptions(q.type === "MCQ" && q.options.length === 4 ? [...q.options] : ["", "", "", ""]);
+    setAnswerIdx(q.type === "MCQ" && typeof q.answer === "number" ? q.answer : 0);
+    setNumAnswer(q.type === "numerical" ? String(q.answer) : "");
+    setTolerance(q.type === "numerical" && q.tolerance ? String(q.tolerance) : "");
+    setSource(q.source === "manual" ? "" : q.source);
+    setImage(q.image ?? null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Shared validation + question build for add and edit. */
+  function buildQuestion(): Omit<Question, "id" | "created_at"> | null {
     if (!text.trim()) {
       toast.error("Question text is empty");
-      return;
+      return null;
     }
     if (!chapter) {
       toast.error("Pick a chapter");
-      return;
+      return null;
     }
-    let q: Question;
     if (type === "MCQ") {
       if (options.some((o) => !o.trim())) {
         toast.error("All 4 options are needed for an MCQ");
-        return;
+        return null;
       }
-      q = {
-        id: uid(),
+      return {
         question: text.trim(),
         options: options.map((o) => o.trim()),
         answer: answerIdx,
@@ -99,33 +146,87 @@ export function QuestionBankView() {
         subject,
         chapter,
         source: source.trim() || "manual",
-        created_at: Date.now(),
-      };
-    } else {
-      const ans = Number(numAnswer);
-      if (Number.isNaN(ans)) {
-        toast.error("Numerical answer must be a number");
-        return;
-      }
-      q = {
-        id: uid(),
-        question: text.trim(),
-        options: [],
-        answer: ans,
-        tolerance: tolerance.trim() === "" ? 0 : Math.max(0, Number(tolerance) || 0),
-        type: "numerical",
-        subject,
-        chapter,
-        source: source.trim() || "manual",
-        created_at: Date.now(),
+        image: image ?? undefined,
       };
     }
-    await put("questions", q);
+    const ans = Number(numAnswer);
+    if (numAnswer.trim() === "" || Number.isNaN(ans)) {
+      toast.error("Numerical answer must be a number");
+      return null;
+    }
+    return {
+      question: text.trim(),
+      options: [],
+      answer: ans,
+      tolerance: tolerance.trim() === "" ? 0 : Math.max(0, Number(tolerance) || 0),
+      type: "numerical",
+      subject,
+      chapter,
+      source: source.trim() || "manual",
+      image: image ?? undefined,
+    };
+  }
+
+  async function addQuestion() {
+    const q = buildQuestion();
+    if (!q) return;
+    await put("questions", { ...q, id: uid(), created_at: Date.now() } as Question);
     toast.success(`Added to ${chapter}`);
     setText("");
     setOptions(["", "", "", ""]);
     setNumAnswer("");
     setTolerance("");
+    setImage(null);
+  }
+
+  async function saveEdit() {
+    const orig = editingId ? questions.find((q) => q.id === editingId) : undefined;
+    if (!orig) {
+      setEditingId(null);
+      return;
+    }
+    const q = buildQuestion();
+    if (!q) return;
+    await put("questions", {
+      ...orig, // same id + created_at preserved
+      ...q,
+      updated_at: Date.now(),
+    } as Question);
+    toast.success("Question updated");
+    resetForm();
+  }
+
+  async function onImageFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    try {
+      setImage(await fileToDataUrl(file, 800));
+      toast.success("Figure attached");
+    } catch {
+      toast.error("Could not read that image — try a JPG/PNG");
+    }
+  }
+
+  // Bonus: paste an image from the clipboard anywhere inside the form
+  function onFormPaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.startsWith("image/")) {
+        const f = it.getAsFile();
+        if (f) {
+          e.preventDefault();
+          fileToDataUrl(f, 800)
+            .then((dataUrl) => {
+              setImage(dataUrl);
+              toast.success("Figure attached from clipboard");
+            })
+            .catch(() => toast.error("Could not read the pasted image"));
+        }
+        return;
+      }
+    }
   }
 
   const chapterFilterOptions =
@@ -146,13 +247,17 @@ export function QuestionBankView() {
       />
 
       <div className="grid lg:grid-cols-5 gap-6">
-        {/* entry form */}
+        {/* entry / edit form */}
         <SectionCard
-          title="Add question"
-          subtitle="numerical questions carry an optional tolerance (real JEE numericals often accept a range)"
+          title={editingId ? "Edit question" : "Add question"}
+          subtitle={
+            editingId
+              ? "changes save to the same question — existing tests keep their own copy of the answer"
+              : "numerical questions carry an optional tolerance (real JEE numericals often accept a range)"
+          }
           className="lg:col-span-2"
         >
-          <div className="space-y-3">
+          <div className="space-y-3" onPaste={onFormPaste}>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Subject</Label>
@@ -272,9 +377,64 @@ export function QuestionBankView() {
               </div>
             )}
 
-            <Button onClick={addQuestion} className="w-full bg-emerald-700 hover:bg-emerald-800">
-              Add to bank
-            </Button>
+            {/* D2b: optional figure */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Figure (optional)</Label>
+              {image ? (
+                <div className="flex items-center gap-2">
+                  <img
+                    src={image}
+                    alt="Question figure preview"
+                    className="h-16 max-w-[160px] object-contain rounded border border-stone-200 bg-white"
+                  />
+                  <div className="flex flex-col gap-1">
+                    <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
+                      Replace
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                      onClick={() => setImage(null)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
+                  📎 Attach figure
+                </Button>
+              )}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void onImageFile(e)}
+              />
+              <p className="text-[11px] text-stone-400">File picker or Ctrl+V paste · downscaled to 800px</p>
+            </div>
+
+            {editingId ? (
+              <div className="flex items-center gap-3">
+                <Button onClick={() => void saveEdit()} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
+                  Save changes
+                </Button>
+                <button
+                  type="button"
+                  className="text-xs text-stone-400 underline hover:text-stone-600"
+                  onClick={resetForm}
+                >
+                  Cancel edit
+                </button>
+              </div>
+            ) : (
+              <Button onClick={addQuestion} className="w-full bg-emerald-700 hover:bg-emerald-800">
+                Add to bank
+              </Button>
+            )}
           </div>
         </SectionCard>
 
@@ -333,10 +493,14 @@ export function QuestionBankView() {
             <ul className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
               {filtered.map((q) => {
                 const tier = tierOf.get(`${q.subject}:${q.chapter}`);
+                const usedBy = tests.filter((t) => t.question_ids?.includes(q.id)).length;
                 return (
                   <li
                     key={q.id}
-                    className="border border-stone-200 rounded-lg p-3 hover:bg-stone-50 transition-colors"
+                    className={cn(
+                      "border rounded-lg p-3 hover:bg-stone-50 transition-colors",
+                      editingId === q.id ? "border-emerald-400 bg-emerald-50/40" : "border-stone-200"
+                    )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -348,6 +512,11 @@ export function QuestionBankView() {
                             {q.type === "MCQ" ? "MCQ" : "NUM"}
                           </Badge>
                           <span className="text-[10px] text-stone-400">{q.source}</span>
+                          {usedBy > 0 ? (
+                            <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-400">
+                              in {usedBy} test{usedBy > 1 ? "s" : ""}
+                            </Badge>
+                          ) : null}
                         </div>
                         <p className="text-sm text-stone-800">{q.question}</p>
                         {q.type === "MCQ" ? (
@@ -366,18 +535,64 @@ export function QuestionBankView() {
                             </span>
                           </p>
                         )}
+                        {q.image ? (
+                          <img
+                            src={q.image}
+                            alt={`Figure for: ${q.question.slice(0, 60)}`}
+                            className="mt-1.5 max-h-24 max-w-full object-contain rounded border border-stone-200 bg-white"
+                          />
+                        ) : null}
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
-                        onClick={() => {
-                          del("questions", q.id);
-                          toast.success("Question deleted");
-                        }}
-                      >
-                        Delete
-                      </Button>
+                      <div className="flex flex-col gap-1 shrink-0 items-end">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-stone-500 hover:text-stone-700 hover:bg-stone-100"
+                          onClick={() => startEdit(q)}
+                        >
+                          Edit
+                        </Button>
+                        {/* C1: delete needs a confirm; warn when used by saved tests */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            >
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete this question?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {usedBy > 0 ? (
+                                  <span className="font-medium text-amber-700">
+                                    Used by {usedBy} saved test{usedBy > 1 ? "s" : ""} — deleting
+                                    will affect their review.{" "}
+                                  </span>
+                                ) : null}
+                                “{q.question.slice(0, 120)}
+                                {q.question.length > 120 ? "…" : ""}” — this can&apos;t be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-red-600 text-white hover:bg-red-700"
+                                onClick={() => {
+                                  del("questions", q.id);
+                                  if (editingId === q.id) resetForm();
+                                  toast.success("Question deleted");
+                                }}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </div>
                   </li>
                 );

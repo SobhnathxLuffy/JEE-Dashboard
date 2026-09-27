@@ -109,6 +109,7 @@ export function northStar(tests: TestRecord[], responses: ResponseRecord[]): num
 
 export function scoreTimeline(tests: TestRecord[]) {
   return [...tests]
+    .filter((t): t is TestRecord & { score: number } => t.score !== null) // skip key-later tests awaiting self-mark
     .sort((a, b) => a.created_at - b.created_at)
     .map((t) => ({
       label: `${t.date.slice(5)} · ${t.source.slice(0, 12)}`,
@@ -140,6 +141,7 @@ export function errorTagCounts(responses: ResponseRecord[]) {
 
 export function negativeMarksByTest(tests: TestRecord[], responses: ResponseRecord[]) {
   return [...tests]
+    .filter((t): t is TestRecord & { score: number } => t.score !== null) // skip key-later tests awaiting self-mark
     .sort((a, b) => a.created_at - b.created_at)
     .slice(-12)
     .map((t) => {

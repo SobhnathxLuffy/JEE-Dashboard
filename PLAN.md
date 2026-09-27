@@ -171,14 +171,14 @@ Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast s
 AI/OCR of scanned keys or papers · multi-correct questions where several options must be selected (Advanced-only — note: multi-answer KEYS from revised NTA keys ARE supported, A7) · mandatory solution-writing (review = tag + optional note/photo, never a full answer sheet) · optional Section B (removed from 2025 pattern) · backend/auth/accounts · cloud sync · social · PYQ content database · video · native mobile app · notifications · paid anything.
 Phase-2 triggers unchanged: NTA regex paper-parser, mixed-test builder, AnkiConnect, formula print view.
 
-## 6. Acceptance checklist v3 ("fully functional for an aspirant")
-- [ ] Paste OR upload a digital NTA key → scores correctly, every format — including dirty keys, two-option keys and bonus questions (Sprint A)
-- [ ] Test length always matches your PDF: any count, any duration, any starting question number (Sprint A)
-- [ ] Wrong-question review with zero mandatory typing: tag + optional note/photo (Sprint D)
-- [ ] A 75-Q PYQ PDF runs as one 180-min test with P/C/M sections (Sprint B)
-- [ ] Player fully keyboard-driven; page-follow never traps you (Sprint B)
-- [ ] No destructive action without confirm; data export/import round-trips losslessly (Sprint C)
-- [ ] Wrong questions re-testable in one click; every module's mistakes feed the loop (Sprint D)
-- [ ] Header shows days-left + streak; every analytics row is actionable (Sprint E)
-- [ ] App opens offline from home screen (Sprint F)
+## 6. Acceptance checklist v3 ("fully functional for an aspirant") — VERIFIED 2026-09-27
+- [x] Paste OR upload a digital NTA key → scores correctly, every format — including dirty keys, two-option keys and bonus questions (Sprint A) ✅ browser-verified
+- [x] Test length always matches your PDF: any count, any duration, any starting question number (Sprint A) ✅ Q21–28 offset drill verified
+- [x] Wrong-question review with zero mandatory typing: tag + optional note/photo (Sprint D) ✅
+- [x] A 75-Q PYQ PDF runs as one 180-min test with P/C/M sections (Sprint B) ✅ verified on a 3-section mini paper (31/36 exact)
+- [x] Player fully keyboard-driven; page-follow never traps you (Sprint B) ✅ 1-4/A-D, Enter, ←, M, C + page flip/zoom/pin
+- [x] No destructive action without confirm; data export/import round-trips losslessly (Sprint C) ✅ delete confirms, in-N-tests warning, bad-import refused, last-export-at nudge
+- [x] Wrong questions re-testable in one click; every module's mistakes feed the loop (Sprint D) ✅ Retry wrong (N) verified end-to-end
+- [x] Header shows days-left + streak; every analytics row is actionable (Sprint E) ✅ 117→99-day countdown editor, streak, amber-row Test buttons
+- [x] App opens offline from home screen (Sprint F) ✅ PWA manifest + network-first SW with offline fallback
 - [ ] Daily loop: Today card → drill (PDF/bank) → tag → revise due → dashboard, ≤10 min app time/day

@@ -5,11 +5,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { PwaRegister } from "./PwaRegister";
 import { cn } from "@/lib/utils";
 import {
   clearSession,
   getAll,
   kvDel,
+  kvGet,
+  kvSet,
   loadSession,
   put,
   bulkPut,
@@ -18,11 +34,12 @@ import {
 } from "@/lib/idb";
 import { SYLLABUS_SEED } from "@/lib/syllabus-seed";
 import type { ActiveSession, TestRecord } from "@/lib/types";
+import { todayStr } from "@/lib/types";
 import { northStar } from "@/lib/analytics";
 
 import { DashboardView } from "./Dashboard";
 import { QuestionBankView } from "./QuestionBank";
-import { TestCreateView } from "./TestCreate";
+import { TestCreateView, type TestCreatePrefill } from "./TestCreate";
 import { PlayerView } from "./Player";
 import { ResultsView } from "./Results";
 import { PdfImportView } from "./PdfImport";
@@ -54,10 +71,17 @@ const NAV: { id: ViewName; label: string }[] = [
   { id: "data", label: "Data" },
 ];
 
+// every legal view name — used to validate a restored deep link
+const ALL_VIEWS: ViewName[] = [...NAV.map((n) => n.id), "player", "results"];
+
+const DEFAULT_EXAM_DATE = "2027-01-22"; // JEE Main 2027 Session 1
+
 export interface NavController {
   go: (v: ViewName) => void;
   openResults: (testId: string) => void;
   startSession: (s: ActiveSession, pdfBlob?: Blob | null) => void;
+  /** open TestCreate with an optional subject/chapter preselected (action-linked analytics) */
+  toTestCreate: (prefill?: TestCreatePrefill) => void;
 }
 
 export function AppRoot() {
@@ -65,6 +89,8 @@ export function AppRoot() {
   const [session, setSession] = useState<ActiveSession | null>(null);
   const [resumable, setResumable] = useState<ActiveSession | null>(null);
   const [resultsTestId, setResultsTestId] = useState<string | null>(null);
+  const [testPrefill, setTestPrefill] = useState<TestCreatePrefill | undefined>(undefined);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pdfBlobRef = useRef<Blob | null>(null);
   const seededRef = useRef(false);
   const dataVersion = useDataVersion();
@@ -72,56 +98,103 @@ export function AppRoot() {
   const tests = useLive("tests");
   const responses = useLive("responses");
 
-  // First load: seed syllabus if empty, check for a resumable session
+  // First load: persist storage, seed syllabus if empty, check for a resumable
+  // session, restore deep links (last view + results target)
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
+    // C4: request durable storage once — fire-and-forget, never surfaces
+    try {
+      void Promise.resolve(navigator.storage?.persist?.()).catch(() => {});
+    } catch {
+      // ancient browsers without the API — ignore
+    }
     (async () => {
-      const rows = await getAll("syllabus");
-      if (rows.length === 0) {
-        await bulkPut("syllabus", SYLLABUS_SEED);
+      try {
+        const rows = await getAll("syllabus");
+        if (rows.length === 0) {
+          await bulkPut("syllabus", SYLLABUS_SEED);
+        }
+      } catch {
+        // seeding is best-effort; the app still works without it
       }
-      const s = await loadSession();
+      const s = await loadSession().catch(() => undefined);
       if (s) setResumable(s);
+      // C5 deep links: restore last view + results test id.
+      // A resumable-session banner renders above any view, so restoring is safe —
+      // the only forbidden jump is INTO the player (session not loaded here).
+      try {
+        const [v, rid] = await Promise.all([
+          kvGet<ViewName>("view"),
+          kvGet<string>("results-testid"),
+        ]);
+        let restored: ViewName = "dashboard";
+        if (v && ALL_VIEWS.includes(v)) restored = v;
+        if (restored === "player") restored = "dashboard";
+        if (restored === "results") {
+          if (rid) setResultsTestId(rid);
+          else restored = "dashboard";
+        }
+        setView(restored);
+      } catch {
+        // deep links are best-effort
+      }
     })();
   }, []);
 
-  const go = useCallback((v: ViewName) => {
+  // C5: every view change is written to kv so a refresh keeps context
+  const applyView = useCallback((v: ViewName) => {
     setView(v);
+    void kvSet("view", v).catch(() => {});
   }, []);
 
-  const openResults = useCallback((testId: string) => {
-    setResultsTestId(testId);
-    setView("results");
-  }, []);
+  const go = useCallback(
+    (v: ViewName) => {
+      setTestPrefill(undefined); // plain navigation never carries a stale chapter prefill
+      applyView(v);
+    },
+    [applyView]
+  );
+
+  const openResults = useCallback(
+    (testId: string) => {
+      setResultsTestId(testId);
+      applyView("results");
+      void kvSet("results-testid", testId).catch(() => {});
+    },
+    [applyView]
+  );
 
   const startSession = useCallback(
     (s: ActiveSession, pdfBlob?: Blob | null) => {
       pdfBlobRef.current = pdfBlob ?? null;
       setResumable(null);
       setSession(s);
-      setView("player");
+      applyView("player");
       // persist immediately — a 3h mock must survive an accidental tab close
       void import("@/lib/idb").then((m) => m.saveSession(s).catch(() => {}));
     },
-    []
+    [applyView]
   );
 
-  const resume = useCallback(async () => {
-    if (!resumable) return;
-    const s = resumable;
-    if (s.mode === "pdf") {
-      try {
-        const blob = await (await import("@/lib/idb")).kvGet<Blob>("pdf-blob");
-        pdfBlobRef.current = blob ?? null;
-      } catch {
-        pdfBlobRef.current = null;
+  const resume = useCallback(
+    async () => {
+      if (!resumable) return;
+      const s = resumable;
+      if (s.mode === "pdf") {
+        try {
+          const blob = await (await import("@/lib/idb")).kvGet<Blob>("pdf-blob");
+          pdfBlobRef.current = blob ?? null;
+        } catch {
+          pdfBlobRef.current = null;
+        }
       }
-    }
-    setSession(s);
-    setResumable(null);
-    setView("player");
-  }, [resumable]);
+      setSession(s);
+      setResumable(null);
+      applyView("player");
+    },
+    [resumable, applyView]
+  );
 
   const discardSession = useCallback(async () => {
     await clearSession();
@@ -140,12 +213,23 @@ export function AppRoot() {
     [openResults]
   );
 
+  // D5: action-linked analytics — amber / repeated-failure rows jump straight
+  // into TestCreate with the chapter preselected
+  const toTestCreate = useCallback(
+    (p?: TestCreatePrefill) => {
+      setTestPrefill(p);
+      applyView("test");
+    },
+    [applyView]
+  );
+
   const star = northStar(tests, responses);
 
-  const nav: NavController = { go, openResults, startSession };
+  const nav: NavController = { go, openResults, startSession, toTestCreate };
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-50">
+      <PwaRegister />
       <Toaster position="bottom-right" />
       <header className="bg-white border-b border-stone-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
@@ -160,7 +244,9 @@ export function AppRoot() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 shrink-0">
+            {/* E1: exam countdown chip — wraps below the north-star on mobile */}
+            <CountdownChip />
             <div className="text-right">
               <div className="text-[10px] uppercase tracking-wide text-stone-400 font-medium">
                 Correct under time
@@ -202,7 +288,8 @@ export function AppRoot() {
               <Button size="sm" onClick={resume} className="bg-emerald-700 hover:bg-emerald-800">
                 Resume
               </Button>
-              <Button size="sm" variant="outline" onClick={discardSession}>
+              {/* C5: discarding a paused session asks for confirmation */}
+              <Button size="sm" variant="outline" onClick={() => setConfirmDiscard(true)}>
                 Discard
               </Button>
             </div>
@@ -213,7 +300,13 @@ export function AppRoot() {
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6">
         {view === "dashboard" ? <DashboardView nav={nav} key={`d-${dataVersion}`} /> : null}
         {view === "bank" ? <QuestionBankView /> : null}
-        {view === "test" ? <TestCreateView nav={nav} /> : null}
+        {view === "test" ? (
+          <TestCreateView
+            key={testPrefill ? `t-${testPrefill.subject}:${testPrefill.chapter}` : "t-blank"}
+            nav={nav}
+            prefill={testPrefill}
+          />
+        ) : null}
         {view === "player" && session ? (
           <PlayerView
             session={session}
@@ -228,7 +321,7 @@ export function AppRoot() {
         {view === "pdf" ? <PdfImportView nav={nav} /> : null}
         {view === "external" ? <ExternalLogView nav={nav} /> : null}
         {view === "syllabus" ? <SyllabusView /> : null}
-        {view === "formula" ? <FormulaView /> : null}
+        {view === "formula" ? <FormulaView nav={nav} /> : null}
         {view === "data" ? <DataView /> : null}
       </main>
 
@@ -240,7 +333,131 @@ export function AppRoot() {
           <span>Every test logged &amp; tagged within 24h, or it didn&apos;t happen.</span>
         </div>
       </footer>
+
+      {/* C5: discard confirmation — answers are lost, only the attempt record stays */}
+      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard “{resumable?.name ?? "this test"}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The timer will keep this attempt only as a record — answers are lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep solving</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={() => {
+                setConfirmDiscard(false);
+                void discardSession();
+              }}
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+// ─── E1: exam countdown chip (target date in kv, editable via popover) ──────
+function daysUntil(fromStr: string, toStr: string): number {
+  const a = new Date(`${fromStr}T12:00:00`).getTime();
+  const b = new Date(`${toStr}T12:00:00`).getTime();
+  return Math.ceil((b - a) / 86400000);
+}
+
+function CountdownChip() {
+  const [target, setTarget] = useState<string | null>(null); // null = not loaded yet
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    kvGet<string>("target-exam-date")
+      .then((v) => {
+        if (alive) {
+          setTarget(typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : DEFAULT_EXAM_DATE);
+        }
+      })
+      .catch(() => {
+        if (alive) setTarget(DEFAULT_EXAM_DATE);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function saveDate() {
+    if (!draft || !/^\d{4}-\d{2}-\d{2}$/.test(draft)) return;
+    setTarget(draft);
+    setOpen(false);
+    try {
+      await kvSet("target-exam-date", draft);
+      const n = daysUntil(todayStr(), draft);
+      toast.success(
+        n > 0
+          ? `Countdown set — ${n} day${n === 1 ? "" : "s"} to go`
+          : n === 0
+            ? "Countdown set — exam day is today"
+            : "Countdown set — date is in the past"
+      );
+    } catch {
+      toast.error("Could not save the target date");
+    }
+  }
+
+  // render only after the kv read resolves (client-only) — no SSR mismatch
+  if (target === null) return null;
+
+  const n = daysUntil(todayStr(), target);
+  const label =
+    n > 0
+      ? `${n} day${n === 1 ? "" : "s"} · JEE Main`
+      : n === 0
+        ? "Exam day!"
+        : `${-n} day${n === -1 ? "" : "s"} since`;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setDraft(target);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-100 transition-colors whitespace-nowrap tabular-nums"
+          aria-label={`Exam countdown: ${label}. Change target date.`}
+        >
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3" align="end">
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-stone-800">Target exam date</div>
+          <Input
+            type="date"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label="Target exam date"
+          />
+          <Button
+            size="sm"
+            className="w-full bg-emerald-700 hover:bg-emerald-800"
+            onClick={() => void saveDate()}
+            disabled={!draft}
+          >
+            Set countdown
+          </Button>
+          <p className="text-[10px] text-stone-400 leading-snug">
+            Default: JEE Main 2027 Session 1 (Jan 22). Stored locally on this device.
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

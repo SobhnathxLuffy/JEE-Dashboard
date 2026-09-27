@@ -1,11 +1,14 @@
 "use client";
 
 // ─── Test creation: pick chapters (auto-select) or questions, set duration ──
+// Polish: full-mock shortfall warning, shuffle-within-subject, paper preview,
+// and an optional prefill prop (subject + chapter) for action-linked flows.
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -27,7 +30,20 @@ import {
   type TestType,
 } from "@/lib/types";
 
-export function TestCreateView({ nav }: { nav: NavController }) {
+export interface TestCreatePrefill {
+  subject: string;
+  chapter: string;
+}
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?: TestCreatePrefill }) {
   const questions = useLive("questions");
   const syllabus = useLive("syllabus");
 
@@ -36,13 +52,23 @@ export function TestCreateView({ nav }: { nav: NavController }) {
   const [name, setName] = useState("");
   const [duration, setDuration] = useState("10");
   const [durationTouched, setDurationTouched] = useState(false);
+  const [shuffle, setShuffle] = useState(false);
 
-  // chapters mode
-  const [activeSubject, setActiveSubject] = useState<Subject>("Physics");
-  const [picked, setPicked] = useState<Record<Subject, string[]>>({
-    Physics: [],
-    Chemistry: [],
-    Mathematics: [],
+  // chapters mode — prefill (when provided) selects the subject tab + chapter
+  // chip on mount via lazy initial state (purely additive prop, default undefined)
+  const [activeSubject, setActiveSubject] = useState<Subject>(() => {
+    const p = prefill?.subject as Subject | undefined;
+    return p && SUBJECTS.includes(p) ? p : "Physics";
+  });
+  const [picked, setPicked] = useState<Record<Subject, string[]>>(() => {
+    const init: Record<Subject, string[]> = {
+      Physics: [],
+      Chemistry: [],
+      Mathematics: [],
+    };
+    const p = prefill?.subject as Subject | undefined;
+    if (p && SUBJECTS.includes(p) && prefill?.chapter) init[p] = [prefill.chapter];
+    return init;
   });
   const [perChapter, setPerChapter] = useState("5");
 
@@ -72,17 +98,45 @@ export function TestCreateView({ nav }: { nav: NavController }) {
     return m;
   }, [questions]);
 
-  const totalPicked = useMemo(() => {
-    if (pickMode === "manual") return selected.length;
-    let n = 0;
-    for (const subj of SUBJECTS) {
-      for (const ch of picked[subj]) {
-        const pool = bankByChapter.get(`${subj}::${ch}`) ?? [];
-        n += Math.min(pool.length, Number(perChapter) || 5);
+  /** The exact paper that "Start test" would run — shared by preview + start. */
+  const orderedIds = useMemo(() => {
+    let ids: string[] = [];
+    if (pickMode === "manual") {
+      ids = [...selected];
+    } else {
+      for (const subj of SUBJECTS) {
+        for (const ch of picked[subj]) {
+          const pool = [...(bankByChapter.get(`${subj}::${ch}`) ?? [])];
+          // interleave MCQ / numerical for variety, then cap at perChapter
+          const mcq = pool.filter((q) => q.type === "MCQ");
+          const num = pool.filter((q) => q.type === "numerical");
+          const mixed: Question[] = [];
+          let i = 0;
+          while (mixed.length < pool.length) {
+            if (i < mcq.length) mixed.push(mcq[i]);
+            if (i < num.length) mixed.push(num[i]);
+            i += 1;
+            if (i > pool.length) break;
+          }
+          const cap = Number(perChapter) || 5;
+          ids.push(...mixed.slice(0, cap).map((q) => q.id));
+        }
       }
     }
-    return n;
-  }, [pickMode, selected, picked, bankByChapter, perChapter]);
+    // order by subject P → C → M; shuffle (when on) only mixes within a subject
+    const byId = new Map(questions.map((q) => [q.id, q] as const));
+    const ordered: string[] = [];
+    for (const subj of SUBJECTS) {
+      const group = ids.filter((id) => byId.get(id)?.subject === subj);
+      if (shuffle) shuffleInPlace(group);
+      ordered.push(...group);
+    }
+    return ordered;
+  }, [pickMode, selected, picked, bankByChapter, perChapter, questions, shuffle]);
+
+  const totalPicked = orderedIds.length;
+
+  const byId = useMemo(() => new Map(questions.map((q) => [q.id, q] as const)), [questions]);
 
   const suggestedDuration = useMemo(() => {
     if (testType === "full") return 180;
@@ -117,48 +171,18 @@ export function TestCreateView({ nav }: { nav: NavController }) {
   }
 
   function buildSession() {
-    let ids: string[] = [];
-    if (pickMode === "manual") {
-      if (selected.length === 0) {
-        toast.error("Select at least one question");
-        return;
-      }
-      ids = selected;
-    } else {
-      if (totalPicked === 0) {
-        toast.error("Pick at least one chapter with questions in the bank");
-        return;
-      }
-      for (const subj of SUBJECTS) {
-        for (const ch of picked[subj]) {
-          const pool = [...(bankByChapter.get(`${subj}::${ch}`) ?? [])];
-          // interleave MCQ / numerical for variety, then cap at perChapter
-          const mcq = pool.filter((q) => q.type === "MCQ");
-          const num = pool.filter((q) => q.type === "numerical");
-          const mixed: Question[] = [];
-          let i = 0;
-          while (mixed.length < pool.length) {
-            if (i < mcq.length) mixed.push(mcq[i]);
-            if (i < num.length) mixed.push(num[i]);
-            i += 1;
-            if (i > pool.length) break;
-          }
-          const cap = Number(perChapter) || 5;
-          ids.push(...mixed.slice(0, cap).map((q) => q.id));
-        }
-      }
-    }
-    if (ids.length === 0) {
-      toast.error("No questions selected");
+    const ids = orderedIds;
+    if (pickMode === "manual" && selected.length === 0) {
+      toast.error("Select at least one question");
       return;
     }
-    // order by subject P → C → M
-    const ordered: string[] = [];
-    for (const subj of SUBJECTS) {
-      const byId = new Map(questions.map((q) => [q.id, q]));
-      ordered.push(
-        ...ids.filter((id) => byId.get(id)?.subject === subj)
+    if (ids.length === 0) {
+      toast.error(
+        pickMode === "manual"
+          ? "Select at least one question"
+          : "Pick at least one chapter with questions in the bank"
       );
+      return;
     }
     const mins = Math.max(1, Number(duration) || 1);
     const session: ActiveSession = {
@@ -170,11 +194,11 @@ export function TestCreateView({ nav }: { nav: NavController }) {
         name.trim() ||
         (testType === "full"
           ? "Full mock"
-          : `${testType === "chapter" ? "Chapter test" : "Test"} — ${totalPicked} Qs`),
+          : `${testType === "chapter" ? "Chapter test" : "Test"} — ${ids.length} Qs`),
       subject_order: [...SUBJECTS].filter((s) =>
-        ordered.some((id) => questions.find((q) => q.id === id)?.subject === s)
+        ids.some((id) => byId.get(id)?.subject === s)
       ),
-      question_ids: ordered,
+      question_ids: ids,
       duration_min: mins,
       started_at: Date.now(),
       answers: {},
@@ -190,6 +214,9 @@ export function TestCreateView({ nav }: { nav: NavController }) {
     () => [...picked.Physics, ...picked.Chemistry, ...picked.Mathematics],
     [picked]
   );
+
+  const [showPreview, setShowPreview] = useState(false);
+  const previewCount = Math.min(10, orderedIds.length);
 
   return (
     <div className="space-y-6">
@@ -226,7 +253,7 @@ export function TestCreateView({ nav }: { nav: NavController }) {
                 />
               </div>
             </div>
-            <div className="flex items-end gap-3 mt-3">
+            <div className="flex items-end gap-3 mt-3 flex-wrap">
               <div className="space-y-1.5 w-40">
                 <Label className="text-xs">Duration (minutes)</Label>
                 <Input
@@ -247,6 +274,28 @@ export function TestCreateView({ nav }: { nav: NavController }) {
                   : "Rule of thumb: 1 min per question for chapter tests"}
               </p>
             </div>
+            <label
+              htmlFor="shuffle-ids"
+              className="flex items-center gap-2 mt-3 cursor-pointer select-none w-fit"
+            >
+              <Checkbox
+                id="shuffle-ids"
+                checked={shuffle}
+                onCheckedChange={(v) => setShuffle(v === true)}
+                className="h-5 w-5"
+              />
+              <span className="text-xs text-stone-600">
+                Shuffle within subject (order always stays P → C → M)
+              </span>
+            </label>
+            {/* full-mock shortfall warning — advisory, never blocks the start */}
+            {testType === "full" && totalPicked < 75 ? (
+              <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+                ⚠ Full mock wants 75 questions (20 MCQ + 5 numerical × 3 subjects) — you have{" "}
+                <strong>{totalPicked}</strong>. Fine for a partial run; the suggested duration and
+                max score simply follow the smaller paper.
+              </p>
+            ) : null}
           </SectionCard>
 
           {pickMode === "chapters" ? (
@@ -289,7 +338,7 @@ export function TestCreateView({ nav }: { nav: NavController }) {
                     <button
                       key={ch}
                       onClick={() => toggleChapter(activeSubject, ch)}
-                      disabled={count === 0}
+                      disabled={count === 0 && !on}
                       className={cn(
                         "px-3 py-1.5 rounded-full text-xs border transition-colors",
                         on
@@ -397,9 +446,54 @@ export function TestCreateView({ nav }: { nav: NavController }) {
                 <span className="font-medium">+4 / −1 / 0 (incl. numericals)</span>
               </div>
             </div>
+
+            {/* paper preview: first 10 of the exact list that would run */}
+            {orderedIds.length > 0 ? (
+              <div className="mt-4 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(!showPreview)}
+                  aria-expanded={showPreview}
+                  className="text-xs text-stone-500 underline hover:text-stone-700"
+                >
+                  {showPreview ? "Hide paper preview" : `Preview paper (first ${previewCount})`}
+                </button>
+                {showPreview ? (
+                  <ol className="mt-2 space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {orderedIds.slice(0, 10).map((id, i) => {
+                      const q = byId.get(id);
+                      if (!q) return null;
+                      return (
+                        <li
+                          key={id}
+                          className="flex items-start gap-2 text-xs border border-stone-100 rounded-md px-2 py-1.5"
+                        >
+                          <span className="font-bold text-stone-500 shrink-0 w-7">Q{i + 1}</span>
+                          <span className="text-stone-700 min-w-0 flex-1">
+                            {q.question.slice(0, 90)}{q.question.length > 90 ? "…" : ""}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] shrink-0 border-stone-300 text-stone-500"
+                          >
+                            {q.type === "numerical" ? "NUM" : "MCQ"}
+                          </Badge>
+                        </li>
+                      );
+                    })}
+                    {orderedIds.length > 10 ? (
+                      <li className="text-[11px] text-stone-400 pl-9">
+                        …and {orderedIds.length - 10} more
+                      </li>
+                    ) : null}
+                  </ol>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="flex gap-2 mt-4">
               <Button
-                className="flex-1 bg-emerald-700 hover:bg-emerald-800"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 min-h-[44px]"
                 onClick={buildSession}
               >
                 Start test
@@ -417,6 +511,7 @@ export function TestCreateView({ nav }: { nav: NavController }) {
             <ul className="text-xs text-stone-500 space-y-2 list-disc pl-4">
               <li>Full-mock template wants 20 MCQ + 5 numerical per subject — the player uses whatever the bank has.</li>
               <li>Chapter tests: keep it tight. 1 min/question is the default suggestion.</li>
+              <li>Shuffle mixes questions inside each subject only — sections stay P → C → M.</li>
               <li>The test auto-saves to this browser — refresh and resume is available.</li>
               <li>Tag every mistake right after submit. C/F/A/R/T/G is the whole point.</li>
             </ul>

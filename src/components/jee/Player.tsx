@@ -1,6 +1,9 @@
 "use client";
 
 // ─── CBT / PDF test player — NTA palette, countdown, per-question timing ────
+// Sprint B: keyboard shortcuts, Previous, NTA palette contrast, full-paper
+// sections (paper numbering), PDF page nav/zoom/pins, timer stages,
+// marksFor() scoring (bonus / multi-answer keys / tolerance) + key-later submit.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,13 +19,18 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, Minus, Plus, Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { saveSession, useLive } from "@/lib/idb";
+import { marksFor } from "@/lib/scoring";
 import {
   SUBJECT_SHORT,
   todayStr,
   uid,
   type ActiveSession,
+  type PdfKeyEntry,
+  type PdfSection,
   type Question,
   type ResponseRecord,
   type Subject,
@@ -30,13 +38,100 @@ import {
 } from "@/lib/types";
 
 const LETTERS = ["A", "B", "C", "D"];
+const ZOOM_STEPS = [1.0, 1.4, 1.8, 2.2]; // − / + cycle through these (default 1.6)
 
 type SlotInfo = {
-  slot: string; // question id (cbt) or number-string (pdf)
-  no: number; // 1-based position
+  slot: string; // question id (cbt) or position "1".."N" (pdf) — answers/marked/q_times key
+  no: number; // displayed number (cbt: position; pdf: paper number, e.g. 21..36)
   subject: Subject;
-  label: string;
+  chapter?: string; // pdf: owning section's chapter
 };
+
+/** A slot as submit needs it: persisted key + paper number + section identity. */
+type SubmitSlot = { key: string; paperNo: number; subject: Subject; chapter: string };
+
+/** pdf_meta.sections (always present after import/idb normalization); synthesize defensively. */
+function sectionsOf(meta: NonNullable<ActiveSession["pdf_meta"]>): PdfSection[] {
+  if (meta.sections && meta.sections.length > 0) return meta.sections;
+  const firstQ = meta.first_q ?? 1;
+  return [
+    {
+      subject: meta.subject,
+      chapter: meta.chapter,
+      first_q: firstQ,
+      last_q: firstQ + meta.total_questions - 1,
+      start_page: meta.start_page,
+      end_page: meta.end_page,
+    },
+  ];
+}
+
+/** Paper-numbered slots from sections, in section order. key = persisted position "1".."N". */
+function pdfSlotList(meta: NonNullable<ActiveSession["pdf_meta"]>): SubmitSlot[] {
+  const out: SubmitSlot[] = [];
+  for (const sec of sectionsOf(meta)) {
+    for (let n = sec.first_q; n <= sec.last_q; n++) {
+      out.push({ key: String(out.length + 1), paperNo: n, subject: sec.subject, chapter: sec.chapter });
+    }
+  }
+  return out;
+}
+
+/** B4: pins win; else per-section even-split over the section's pages; else meta-level estimate. */
+function pageForQuestion(s: ActiveSession, paperNo: number): number {
+  const meta = s.pdf_meta;
+  if (!meta) return 1;
+  const pin = meta.page_pins?.[String(paperNo)];
+  if (typeof pin === "number" && pin >= 1) return pin;
+  const sec = sectionsOf(meta).find((x) => paperNo >= x.first_q && paperNo <= x.last_q);
+  if (sec) {
+    const pages = Math.max(1, sec.end_page - sec.start_page + 1);
+    const perPage = Math.max(1, Math.ceil((sec.last_q - sec.first_q + 1) / pages));
+    return sec.start_page + Math.floor((paperNo - sec.first_q) / perPage);
+  }
+  const pages = Math.max(1, meta.end_page - meta.start_page + 1);
+  const perPage = Math.max(1, Math.ceil(Math.max(1, meta.total_questions) / pages));
+  return meta.start_page + Math.floor((paperNo - (meta.first_q ?? 1)) / perPage);
+}
+
+// ── key-entry helpers (answers[] / bonus aware) ──────────────────────────────
+function entryAccepted(entry: PdfKeyEntry): string[] {
+  const acc = entry.answers && entry.answers.length > 0 ? entry.answers : [entry.answer];
+  return acc.filter((v) => typeof v === "string" && v.trim() !== "");
+}
+
+function entryIsLetter(entry: PdfKeyEntry): boolean {
+  const first = entryAccepted(entry)[0];
+  return first !== undefined && /^[A-Da-d]$/.test(first.trim());
+}
+
+/** A7 scoring: letters case-insensitive membership; numericals within ±tolerance (+1e-9). */
+function checkPdfAnswer(entry: PdfKeyEntry, selected: string, tolerance: number): boolean {
+  const accepted = entryAccepted(entry);
+  if (accepted.length === 0) return false;
+  if (entryIsLetter(entry)) {
+    const u = selected.trim().toUpperCase();
+    return accepted.some((v) => v.trim().toUpperCase() === u);
+  }
+  const u = Number(selected);
+  if (Number.isNaN(u)) return false;
+  return accepted.some((v) => {
+    const a = Number(v);
+    return !Number.isNaN(a) && Math.abs(u - a) <= tolerance + 1e-9;
+  });
+}
+
+/** Human-readable key for the response record ("B", "B/C", "42.5", "bonus"). */
+function keyDisplay(entry: PdfKeyEntry): string {
+  const acc = entryAccepted(entry);
+  if (acc.length > 0) return acc.join("/");
+  return entry.bonus ? "bonus" : "?";
+}
+
+function pdfKeyIsLetter(s: ActiveSession, paperNo: number): boolean {
+  const entry = s.pdf_meta?.key.find((k) => k.no === paperNo);
+  return entry !== undefined && entryIsLetter(entry);
+}
 
 export function PlayerView({
   session,
@@ -54,8 +149,13 @@ export function PlayerView({
   const [pdfPage, setPdfPage] = useState<HTMLCanvasElement | null>(null);
   const [pdfErr, setPdfErr] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [viewPage, setViewPage] = useState(1); // page currently shown in the panel
+  const [pageInput, setPageInput] = useState("1");
+  const [zoom, setZoom] = useState(1.6);
+  const [numPages, setNumPages] = useState<number | null>(null);
   const submittingRef = useRef(false);
   const pdfDocRef = useRef<Awaited<ReturnType<typeof import("pdfjs-dist").getDocument>["promise"]> | null>(null);
+  const renderTaskRef = useRef<{ cancel: () => void; promise: Promise<unknown> } | null>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
@@ -71,23 +171,24 @@ export function PlayerView({
       for (const id of session.question_ids) {
         const q = qMap.get(id);
         if (!q) continue;
-        out.push({ slot: id, no: no++, subject: q.subject, label: SUBJECT_SHORT[q.subject] });
+        out.push({ slot: id, no: no++, subject: q.subject });
       }
       return out;
     }
-    const total = session.pdf_meta?.total_questions ?? 0;
-    const subj = session.pdf_meta?.subject ?? "Physics";
-    return Array.from({ length: total }, (_, i) => ({
-      slot: String(i + 1),
-      no: i + 1,
-      subject: subj,
-      label: SUBJECT_SHORT[subj],
+    const meta = session.pdf_meta;
+    if (!meta) return [];
+    // B3: slots from sections — paper numbers first_q..last_q, subject/chapter per section
+    return pdfSlotList(meta).map((sl) => ({
+      slot: sl.key,
+      no: sl.paperNo,
+      subject: sl.subject,
+      chapter: sl.chapter,
     }));
   }, [session, qMap]);
 
   const currentSlot = slots[Math.min(session.current, slots.length - 1)];
 
-  // sections = subjects in order of appearance
+  // sections = subjects in order of appearance (P/C/M for full papers)
   const sections = useMemo(() => {
     const seen: Subject[] = [];
     for (const s of slots) {
@@ -115,6 +216,9 @@ export function PlayerView({
   );
   const mins = Math.floor(remaining / 60);
   const secs = Math.floor(remaining % 60);
+  // B5 timer stages: ≤2 min red, ≤10 min amber, else normal
+  const timeStage: "red" | "amber" | "normal" =
+    remaining <= 120 ? "red" : remaining <= 600 ? "amber" : "normal";
 
   // ── per-question time accounting ──
   const commitTime = useCallback(
@@ -173,6 +277,65 @@ export function PlayerView({
     });
   }
 
+  // ── B1: keyboard shortcuts — one window handler, always-fresh via ref ──────
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandlerRef.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (
+      t &&
+      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)
+    ) {
+      return;
+    }
+    // any open Radix dialog (submit confirm / abandon) owns the keyboard
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    const s = sessionRef.current;
+    const slot = currentSlot;
+    if (!s || !slot) return;
+    const key = e.key;
+    const isMcq =
+      s.mode === "pdf" ? pdfKeyIsLetter(s, slot.no) : qMap.get(slot.slot)?.type === "MCQ";
+    // 1-4 / a-d select the option (no auto-advance)
+    if (isMcq && /^[1-4]$/.test(key)) {
+      e.preventDefault();
+      const i = Number(key) - 1;
+      setAnswer(slot.slot, s.mode === "pdf" ? LETTERS[i] : i);
+      return;
+    }
+    if (isMcq && /^[a-dA-D]$/.test(key)) {
+      e.preventDefault();
+      const i = key.toLowerCase().charCodeAt(0) - 97;
+      setAnswer(slot.slot, s.mode === "pdf" ? LETTERS[i] : i);
+      return;
+    }
+    if (key === "Enter") {
+      e.preventDefault();
+      saveAndNext();
+      return;
+    }
+    if (key === "ArrowLeft") {
+      e.preventDefault();
+      goTo(s.current - 1);
+      return;
+    }
+    if (key === "m" || key === "M") {
+      e.preventDefault();
+      markAndNext();
+      return;
+    }
+    if (key === "c" || key === "C") {
+      e.preventDefault();
+      clearResponse();
+      return;
+    }
+  };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyHandlerRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   // ── submit ──
   const submit = useCallback(async () => {
     if (submittingRef.current) return;
@@ -192,7 +355,9 @@ export function PlayerView({
     };
 
     if (s.mode === "cbt") {
+      let pos = 0;
       for (const id of s.question_ids) {
+        pos += 1;
         const q = qMap.get(id);
         if (!q) continue;
         const raw = s.answers[id];
@@ -208,7 +373,7 @@ export function PlayerView({
               Math.abs(u - Number(q.answer)) <= (q.tolerance || 0) + 1e-9;
           }
         }
-        const marks = attempted ? (correct ? 4 : -1) : 0;
+        const marks = marksFor(attempted, correct);
         score += marks;
         subjectScores[q.subject] += marks;
         responses.push({
@@ -218,6 +383,7 @@ export function PlayerView({
           selected,
           correct,
           attempted,
+          q_no: pos,
           time_spent: Math.round(qTimes[id] ?? 0),
           error_tag: null,
           subject: q.subject,
@@ -249,41 +415,51 @@ export function PlayerView({
     }
 
     // PDF mode
-    const meta = s.pdf_meta!;
-    const keyMap = new Map(meta.key.map((k) => [k.no, k.answer]));
-    for (let no = 1; no <= meta.total_questions; no++) {
-      const raw = s.answers[String(no)];
+    const meta = s.pdf_meta;
+    if (!meta) {
+      onFinish(s.test_id);
+      return;
+    }
+    const tol = meta.tolerance ?? 0;
+    const keyLater = meta.key_later === true; // D4: no key → no scoring, self-mark in Results
+    const keyByNo = new Map(meta.key.map((k) => [k.no, k] as const));
+
+    for (const sl of pdfSlotList(meta)) {
+      const raw = s.answers[sl.key];
       const selected =
         raw === undefined || raw === "" || raw === null ? null : String(raw);
       const attempted = selected !== null;
-      const ans = keyMap.get(no);
-      let correct = false;
-      if (attempted && ans !== undefined) {
-        if (/^[A-D]$/.test(ans)) correct = selected!.toUpperCase() === ans;
-        else {
-          const u = Number(selected);
-          const a = Number(ans);
-          correct = !Number.isNaN(u) && Math.abs(u - a) <= 1e-9;
+      const entry = keyByNo.get(sl.paperNo);
+      const isBonus = entry?.bonus === true;
+      let correct: boolean | null = null;
+      if (!keyLater) {
+        if (selected !== null && entry) {
+          correct = checkPdfAnswer(entry, selected, tol);
         }
+        // bonus (dropped question) counts as solved for everyone — persist it,
+        // so review rows / retry candidates / analytics all agree with the score
+        if (isBonus) correct = true; // bonus-fix-v2
+        // bonus → +4 regardless (marksFor handles it); keyless-attempted → 0, never −1
+        const marks = marksFor(attempted || isBonus, correct, isBonus);
+        score += marks;
+        subjectScores[sl.subject] += marks;
       }
-      const marks = attempted ? (correct ? 4 : -1) : 0;
-      score += marks;
-      subjectScores[meta.subject] += marks;
       responses.push({
         id: uid(),
         test_id: s.test_id,
-        question_id: `pdf:${s.test_id}:${no}`,
+        question_id: `pdf:${s.test_id}:${sl.paperNo}`,
         selected: attempted ? selected : null,
-        correct,
+        correct: keyLater ? null : correct,
         attempted,
-        time_spent: Math.round(qTimes[String(no)] ?? 0),
+        q_no: sl.paperNo,
+        time_spent: Math.round(qTimes[sl.key] ?? 0),
         error_tag: null,
-        subject: meta.subject,
-        chapter: meta.chapter,
-        question_snippet: `PDF Q${no} (page ${pageForQuestion(s, no)})`,
-        correct_answer: ans ?? "?",
-        type: /^[A-D]$/.test(String(ans)) ? "MCQ" : "numerical",
-        options: /^[A-D]$/.test(String(ans)) ? ["A", "B", "C", "D"] : [],
+        subject: sl.subject,
+        chapter: sl.chapter,
+        question_snippet: `PDF Q${sl.paperNo} (page ${pageForQuestion(s, sl.paperNo)})`,
+        correct_answer: entry ? keyDisplay(entry) : "?",
+        type: entry && entryIsLetter(entry) ? "MCQ" : "numerical",
+        options: entry && entryIsLetter(entry) ? ["A", "B", "C", "D"] : [],
       });
     }
     const record: TestRecord = {
@@ -294,14 +470,17 @@ export function PlayerView({
       source: "PDF",
       type: "pdf",
       duration_min: s.duration_min,
-      score,
+      score: keyLater ? null : score,
       max_score: meta.total_questions * 4,
-      subject_scores: subjectScores,
+      subject_scores: keyLater ? {} : subjectScores,
       pdf_meta: meta,
     };
     const idb = await import("@/lib/idb");
     await idb.bulkPut("responses", responses);
     await idb.put("tests", record);
+    if (keyLater) {
+      toast.info("Self-mark each question to compute your score.");
+    }
     onFinish(s.test_id);
   }, [qMap, onFinish]);
 
@@ -323,7 +502,16 @@ export function PlayerView({
 
   const curNo = currentSlot ? currentSlot.no : 1;
 
-  // ── pdf.js: load document once, render current page ──
+  // ── B4: the panel follows the question's page (pin-aware) ──
+  useEffect(() => {
+    setViewPage(pageForQuestion(sessionRef.current, curNo));
+  }, [curNo, session.mode]);
+
+  useEffect(() => {
+    setPageInput(String(viewPage));
+  }, [viewPage]);
+
+  // ── pdf.js: load document once, render the viewed page at the chosen zoom ──
   useEffect(() => {
     let cancelled = false;
     if (session.mode !== "pdf" || !pdfBlob) {
@@ -339,17 +527,25 @@ export function PlayerView({
           pdfDocRef.current = await pdfjs.getDocument({ data: buf }).promise;
         }
         if (cancelled || !pdfDocRef.current) return;
-        const pageNo = pageForQuestion(sessionRef.current, curNo);
-        const page = await pdfDocRef.current.getPage(Math.min(pageNo, pdfDocRef.current.numPages));
+        setNumPages(pdfDocRef.current.numPages);
+        const pageNo = Math.min(Math.max(1, viewPage), pdfDocRef.current.numPages);
+        const page = await pdfDocRef.current.getPage(pageNo);
         if (cancelled) return;
-        const scale = 1.6;
-        const viewport = page.getViewport({ scale });
+        const viewport = page.getViewport({ scale: zoom });
         const canvas = document.createElement("canvas");
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        renderTaskRef.current?.cancel();
+        const task = page.render({ canvasContext: ctx, viewport });
+        renderTaskRef.current = task;
+        try {
+          await task.promise;
+        } catch (err) {
+          if (cancelled) return; // superseded by a newer render — ignore
+          throw err;
+        }
         if (!cancelled) {
           setPdfPage(canvas);
           setPdfErr(null);
@@ -361,7 +557,7 @@ export function PlayerView({
     return () => {
       cancelled = true;
     };
-  }, [session.mode, pdfBlob, curNo, session.current]);
+  }, [session.mode, pdfBlob, viewPage, zoom]);
 
   if (slots.length === 0) {
     return (
@@ -381,13 +577,56 @@ export function PlayerView({
   const answeredCount = Object.values(session.answers).filter(
     (v) => v !== null && v !== undefined && v !== ""
   ).length;
+  const keyLater = session.mode === "pdf" && session.pdf_meta?.key_later === true;
+  const pinForCurrent = session.pdf_meta?.page_pins?.[String(curNo)];
 
   // active section derived from current question's subject
   const activeSection = currentSlot?.subject ?? sections[0];
 
   function sectionTabClick(subj: Subject) {
     const range = sectionRanges.find((r) => r.subject === subj);
-    if (range) goTo(range.start);
+    if (!range) return;
+    // jump to the section's first unanswered question (its first question if all answered)
+    let target = range.start;
+    for (let i = range.start; i <= range.end; i++) {
+      const a = slots[i] ? session.answers[slots[i].slot] : undefined;
+      if (a === undefined || a === null || a === "") {
+        target = i;
+        break;
+      }
+    }
+    goTo(target);
+  }
+
+  function commitPageJump() {
+    const max = numPages ?? 1;
+    const n = Math.round(Number(pageInput));
+    if (!Number.isFinite(n) || n < 1) {
+      setPageInput(String(viewPage));
+      return;
+    }
+    setViewPage(Math.min(n, max));
+  }
+
+  function stepZoom(dir: 1 | -1) {
+    setZoom((z) => {
+      const sorted = [...ZOOM_STEPS].sort((a, b) => a - b);
+      const next =
+        dir > 0
+          ? sorted.find((v) => v > z + 1e-9)
+          : [...sorted].reverse().find((v) => v < z - 1e-9);
+      return next ?? z;
+    });
+  }
+
+  function pinCurrentPage() {
+    const s = sessionRef.current;
+    const meta = s.pdf_meta;
+    if (!meta) return;
+    const pins = { ...(meta.page_pins ?? {}) };
+    pins[String(curNo)] = viewPage;
+    persist({ ...s, pdf_meta: { ...meta, page_pins: pins } });
+    toast.success(`Q${curNo} pinned to page ${viewPage}`);
   }
 
   return (
@@ -396,20 +635,28 @@ export function PlayerView({
       <div
         className={cn(
           "bg-white border rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap",
-          remaining < 120 ? "border-red-300" : "border-stone-200"
+          timeStage === "red" ? "border-red-300" : timeStage === "amber" ? "border-amber-300" : "border-stone-200"
         )}
       >
         <div className="min-w-0">
           <div className="font-semibold text-stone-900 truncate">{session.name}</div>
           <div className="text-xs text-stone-400">
-            {slots.length} questions · +4 / −1 / 0 · numericals included
+            {slots.length} questions ·{" "}
+            {keyLater ? "key comes later — self-mark after submit" : "+4 / −1 / 0 · numericals included"}
           </div>
+        </div>
+        <div className="hidden md:block text-[11px] text-stone-400" aria-hidden="true">
+          ⌨ 1-4 · Enter · ← · M · C
         </div>
         <div className="flex items-center gap-3">
           <div
             className={cn(
               "text-2xl font-black tabular-nums px-4 py-1.5 rounded-lg",
-              remaining < 120 ? "bg-red-50 text-red-600" : "bg-stone-100 text-stone-800"
+              timeStage === "red"
+                ? "bg-red-50 text-red-600"
+                : timeStage === "amber"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-stone-100 text-stone-800"
             )}
             aria-live="polite"
           >
@@ -423,8 +670,10 @@ export function PlayerView({
               <AlertDialogHeader>
                 <AlertDialogTitle>Submit test?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {answeredCount} answered · {slots.length - answeredCount} unattempted. After
-                  submit you tag every mistake — that&apos;s where the marks come back.
+                  {answeredCount} answered · {slots.length - answeredCount} unattempted.{" "}
+                  {keyLater
+                    ? "There's no key yet — you'll self-mark every question in review."
+                    : "After submit you tag every mistake — that's where the marks come back."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -446,18 +695,95 @@ export function PlayerView({
         <div className="lg:col-span-3 bg-white border border-stone-200 rounded-xl p-4 min-h-[420px] flex flex-col">
           {session.mode === "pdf" ? (
             <div className="flex-1 flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <Badge variant="outline" className="border-stone-300 text-stone-500">
-                  PDF page {pageForQuestion(session, curNo)}
-                </Badge>
-                <span className="text-xs text-stone-400">
-                  {pdfErr ? "PDF render failed — check the file" : "question paper on the right →"}
-                </span>
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="border-stone-300 text-stone-500">
+                    PDF page {viewPage}
+                    {numPages ? ` / ${numPages}` : ""}
+                  </Badge>
+                  {pinForCurrent ? (
+                    <Badge variant="outline" className="border-purple-300 text-purple-700 gap-1">
+                      <Pin className="w-3 h-3" aria-hidden="true" /> Q{curNo} → p{pinForCurrent}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 p-0"
+                    onClick={() => setViewPage((v) => Math.max(1, v - 1))}
+                    disabled={viewPage <= 1}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Input
+                    className="h-10 w-14 text-center"
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onBlur={commitPageJump}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitPageJump();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    inputMode="numeric"
+                    aria-label="Jump to page"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 p-0"
+                    onClick={() => setViewPage((v) => Math.min(numPages ?? v + 1, v + 1))}
+                    disabled={numPages !== null && viewPage >= numPages}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 p-0"
+                    onClick={() => stepZoom(-1)}
+                    aria-label="Zoom out"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </Button>
+                  <span
+                    className="h-10 min-w-12 px-2 inline-flex items-center justify-center rounded-md border border-stone-200 bg-white text-xs font-medium tabular-nums text-stone-600"
+                    aria-live="polite"
+                  >
+                    {zoom.toFixed(1)}×
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 p-0"
+                    onClick={() => stepZoom(1)}
+                    aria-label="Zoom in"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 px-3 gap-1.5"
+                    onClick={pinCurrentPage}
+                    aria-label={`Pin page ${viewPage} to question ${curNo}`}
+                  >
+                    <Pin className="w-4 h-4" aria-hidden="true" />
+                    Pin Q{curNo} · p{viewPage}
+                  </Button>
+                </div>
               </div>
+              {pdfErr ? (
+                <div className="text-xs text-red-500 mb-2">{pdfErr}</div>
+              ) : null}
               <div className="border border-stone-200 rounded-lg overflow-auto max-h-[420px] bg-stone-100">
-                {pdfErr ? (
-                  <div className="p-6 text-sm text-red-500">{pdfErr}</div>
-                ) : pdfPage ? (
+                {pdfPage ? (
                   <canvas
                     className="w-full h-auto block"
                     ref={(node) => {
@@ -472,7 +798,9 @@ export function PlayerView({
                     }}
                   />
                 ) : (
-                  <div className="p-10 text-center text-sm text-stone-400">Rendering page…</div>
+                  <div className="p-10 text-center text-sm text-stone-400">
+                    {pdfErr ? pdfErr : "Rendering page…"}
+                  </div>
                 )}
               </div>
             </div>
@@ -487,7 +815,7 @@ export function PlayerView({
                     {pdfKeyIsLetter(session, currentSlot.no) ? "MCQ" : "NUMERICAL"}
                   </Badge>
                   <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
-                    {session.pdf_meta?.chapter}
+                    {currentSlot.chapter ?? session.pdf_meta?.chapter}
                   </Badge>
                 </div>
                 <span className="text-xs text-stone-400">
@@ -504,7 +832,7 @@ export function PlayerView({
               </p>
               {pdfKeyIsLetter(session, currentSlot.no) ? (
                 <div className="flex gap-2">
-                  {LETTERS.map((l, i) => (
+                  {LETTERS.map((l) => (
                     <button
                       key={l}
                       onClick={() => setAnswer(currentSlot.slot, l)}
@@ -551,6 +879,14 @@ export function PlayerView({
                 </span>
               </div>
               <p className="text-base text-stone-900 mb-5 leading-relaxed">{curQ.question}</p>
+
+              {curQ.image ? (
+                <img
+                  src={curQ.image}
+                  alt={`Figure for question ${currentSlot?.no ?? ""}`}
+                  className="max-h-64 rounded-lg border border-stone-200 mb-4"
+                />
+              ) : null}
 
               {curQ.type === "MCQ" ? (
                 <div className="space-y-2">
@@ -603,7 +939,17 @@ export function PlayerView({
 
           {/* action bar */}
           <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-stone-100">
-            <Button variant="outline" size="sm" onClick={clearResponse}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 px-3"
+              onClick={() => goTo(session.current - 1)}
+              disabled={session.current <= 0}
+              aria-label="Previous question"
+            >
+              ← Previous
+            </Button>
+            <Button variant="outline" size="sm" className="h-10 px-3" onClick={clearResponse}>
               Clear Response
             </Button>
             <div className="flex-1" />
@@ -611,14 +957,14 @@ export function PlayerView({
               variant="outline"
               size="sm"
               onClick={markAndNext}
-              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              className="h-10 px-3 border-purple-300 text-purple-700 hover:bg-purple-50"
             >
               {isMarked ? "Marked ✓ ·" : "Mark for Review &"} Next
             </Button>
             <Button
               size="sm"
               onClick={saveAndNext}
-              className="bg-emerald-700 hover:bg-emerald-800"
+              className="h-10 px-3 bg-emerald-700 hover:bg-emerald-800"
             >
               Save &amp; Next
             </Button>
@@ -628,23 +974,26 @@ export function PlayerView({
         {/* palette rail */}
         <div className="bg-white border border-stone-200 rounded-xl p-4">
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {sections.map((s) => (
-              <button
-                key={s}
-                onClick={() => sectionTabClick(s)}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  activeSection === s
-                    ? "bg-stone-900 text-white"
-                    : "bg-stone-100 text-stone-500 hover:bg-stone-200"
-                )}
-              >
-                {s} ({slots.filter((x) => x.subject === s).length})
-              </button>
-            ))}
+            {sections.map((s) => {
+              const count = slots.filter((x) => x.subject === s).length;
+              return (
+                <button
+                  key={s}
+                  onClick={() => sectionTabClick(s)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-medium transition-colors min-h-[36px]",
+                    activeSection === s
+                      ? "bg-stone-900 text-white"
+                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                  )}
+                >
+                  {SUBJECT_SHORT[s]} ({count})
+                </button>
+              );
+            })}
           </div>
 
-          <div className="grid grid-cols-7 gap-1.5 mb-3 max-h-64 overflow-y-auto p-0.5">
+          <div className="grid grid-cols-7 gap-1 mb-3 max-h-64 overflow-y-auto p-0.5 sm:gap-1.5">
             {slots.map((s, i) => {
               const ans = session.answers[s.slot];
               const answered = ans !== null && ans !== undefined && ans !== "";
@@ -655,19 +1004,19 @@ export function PlayerView({
                   key={s.slot}
                   onClick={() => goTo(i)}
                   className={cn(
-                    "w-8 h-8 rounded-md text-xs font-semibold border transition-colors relative",
-                    answered
-                      ? "bg-emerald-600 text-white border-emerald-600"
-                      : "bg-white text-stone-600 border-stone-300",
-                    marked && "bg-purple-600 text-white border-purple-600",
+                    "h-10 w-10 sm:h-8 sm:w-8 rounded-md text-xs font-semibold border-2 transition-colors relative",
+                    answered && marked
+                      ? "bg-emerald-600 text-white border-purple-600"
+                      : answered
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : marked
+                          ? "bg-white text-purple-700 border-purple-600"
+                          : "bg-white text-stone-600 border-stone-300",
                     isCurrent && "ring-4 ring-yellow-300 ring-offset-0"
                   )}
                   aria-label={`Question ${s.no}${answered ? ", answered" : ""}${marked ? ", marked" : ""}`}
                 >
                   {s.no}
-                  {answered && marked ? (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white" />
-                  ) : null}
                 </button>
               );
             })}
@@ -675,17 +1024,23 @@ export function PlayerView({
 
           <div className="text-[11px] text-stone-500 space-y-1.5 border-t border-stone-100 pt-3">
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-emerald-600 inline-block" /> Answered
+              <span className="w-4 h-4 rounded bg-emerald-600 border-2 border-emerald-600 inline-block" />{" "}
+              Answered
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-purple-600 inline-block" /> Marked for review
+              <span className="w-4 h-4 rounded bg-white border-2 border-purple-600 inline-block" />{" "}
+              Marked for review
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border border-stone-300 inline-block" /> Not
+              <span className="w-4 h-4 rounded bg-emerald-600 border-2 border-purple-600 inline-block" />{" "}
+              Answered &amp; marked
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 inline-block" /> Not
               answered
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border-2 border-yellow-300 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 ring-4 ring-yellow-300 inline-block" />{" "}
               Current
             </div>
           </div>
@@ -733,17 +1088,4 @@ export function PlayerView({
       </div>
     </div>
   );
-}
-
-function pageForQuestion(s: ActiveSession, no: number): number {
-  const meta = s.pdf_meta;
-  if (!meta) return 1;
-  const pages = Math.max(1, meta.end_page - meta.start_page + 1);
-  const perPage = Math.ceil(meta.total_questions / pages);
-  return meta.start_page + Math.floor((no - 1) / perPage);
-}
-
-function pdfKeyIsLetter(s: ActiveSession, no: number): boolean {
-  const ans = s.pdf_meta?.key.find((k) => k.no === no)?.answer;
-  return ans !== undefined && /^[A-D]$/.test(ans);
 }

@@ -1,0 +1,750 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→// ─── CBT / PDF test player — NTA palette, countdown, per-question timing ────
+     4→     4→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+     5→     5→import { Button } from "@/components/ui/button";
+     6→     6→import { Input } from "@/components/ui/input";
+     7→     7→import {
+     8→     8→  AlertDialog,
+     9→     9→  AlertDialogAction,
+    10→    10→  AlertDialogCancel,
+    11→    11→  AlertDialogContent,
+    12→    12→  AlertDialogDescription,
+    13→    13→  AlertDialogFooter,
+    14→    14→  AlertDialogHeader,
+    15→    15→  AlertDialogTitle,
+    16→    16→  AlertDialogTrigger,
+    17→    17→} from "@/components/ui/alert-dialog";
+    18→    18→import { Badge } from "@/components/ui/badge";
+    19→    19→import { cn } from "@/lib/utils";
+    20→    20→import { saveSession, useLive } from "@/lib/idb";
+    21→    21→import {
+    22→    22→  SUBJECT_SHORT,
+    23→    23→  todayStr,
+    24→    24→  uid,
+    25→    25→  type ActiveSession,
+    26→    26→  type Question,
+    27→    27→  type ResponseRecord,
+    28→    28→  type Subject,
+    29→    29→  type TestRecord,
+    30→    30→} from "@/lib/types";
+    31→    31→
+    32→    32→const LETTERS = ["A", "B", "C", "D"];
+    33→    33→
+    34→    34→type SlotInfo = {
+    35→    35→  slot: string; // question id (cbt) or number-string (pdf)
+    36→    36→  no: number; // 1-based position
+    37→    37→  subject: Subject;
+    38→    38→  label: string;
+    39→    39→};
+    40→    40→
+    41→    41→export function PlayerView({
+    42→    42→  session,
+    43→    43→  pdfBlob,
+    44→    44→  onPersist,
+    45→    45→  onFinish,
+    46→    46→}: {
+    47→    47→  session: ActiveSession;
+    48→    48→  pdfBlob: Blob | null;
+    49→    49→  onPersist: (s: ActiveSession) => void;
+    50→    50→  onFinish: (testId: string) => void;
+    51→    51→}) {
+    52→    52→  const questions = useLive("questions");
+    53→    53→  const [now, setNow] = useState(Date.now());
+    54→    54→  const [pdfPage, setPdfPage] = useState<HTMLCanvasElement | null>(null);
+    55→    55→  const [pdfErr, setPdfErr] = useState<string | null>(null);
+    56→    56→  const [confirmOpen, setConfirmOpen] = useState(false);
+    57→    57→  const submittingRef = useRef(false);
+    58→    58→  const pdfDocRef = useRef<Awaited<ReturnType<typeof import("pdfjs-dist").getDocument>["promise"]> | null>(null);
+    59→    59→  const sessionRef = useRef(session);
+    60→    60→  sessionRef.current = session;
+    61→    61→
+    62→    62→  const qMap = useMemo(
+    63→    63→    () => new Map(questions.map((q) => [q.id, q] as const)),
+    64→    64→    [questions]
+    65→    65→  );
+    66→    66→
+    67→    67→  const slots: SlotInfo[] = useMemo(() => {
+    68→    68→    if (session.mode === "cbt") {
+    69→    69→      const out: SlotInfo[] = [];
+    70→    70→      let no = 1;
+    71→    71→      for (const id of session.question_ids) {
+    72→    72→        const q = qMap.get(id);
+    73→    73→        if (!q) continue;
+    74→    74→        out.push({ slot: id, no: no++, subject: q.subject, label: SUBJECT_SHORT[q.subject] });
+    75→    75→      }
+    76→    76→      return out;
+    77→    77→    }
+    78→    78→    const total = session.pdf_meta?.total_questions ?? 0;
+    79→    79→    const subj = session.pdf_meta?.subject ?? "Physics";
+    80→    80→    return Array.from({ length: total }, (_, i) => ({
+    81→    81→      slot: String(i + 1),
+    82→    82→      no: i + 1,
+    83→    83→      subject: subj,
+    84→    84→      label: SUBJECT_SHORT[subj],
+    85→    85→    }));
+    86→    86→  }, [session, qMap]);
+    87→    87→
+    88→    88→  const currentSlot = slots[Math.min(session.current, slots.length - 1)];
+    89→    89→
+    90→    90→  // sections = subjects in order of appearance
+    91→    91→  const sections = useMemo(() => {
+    92→    92→    const seen: Subject[] = [];
+    93→    93→    for (const s of slots) {
+    94→    94→      if (!seen.includes(s.subject)) seen.push(s.subject);
+    95→    95→    }
+    96→    96→    return seen;
+    97→    97→  }, [slots]);
+    98→    98→
+    99→    99→  const sectionRanges = useMemo(() => {
+   100→   100→    return sections.map((subj) => {
+   101→   101→      const idxs = slots.map((s, i) => (s.subject === subj ? i : -1)).filter((i) => i >= 0);
+   102→   102→      return { subject: subj, start: idxs[0] ?? 0, end: idxs[idxs.length - 1] ?? 0 };
+   103→   103→    });
+   104→   104→  }, [sections, slots]);
+   105→   105→
+   106→   106→  // ── timer ──
+   107→   107→  useEffect(() => {
+   108→   108→    const t = setInterval(() => setNow(Date.now()), 500);
+   109→   109→    return () => clearInterval(t);
+   110→   110→  }, []);
+   111→   111→
+   112→   112→  const remaining = Math.max(
+   113→   113→    0,
+   114→   114→    session.duration_min * 60 - (now - session.started_at) / 1000
+   115→   115→  );
+   116→   116→  const mins = Math.floor(remaining / 60);
+   117→   117→  const secs = Math.floor(remaining % 60);
+   118→   118→
+   119→   119→  // ── per-question time accounting ──
+   120→   120→  const commitTime = useCallback(
+   121→   121→    (s: ActiveSession, nextIndex: number): ActiveSession => {
+   122→   122→      const elapsed = (Date.now() - s.q_entered_at) / 1000;
+   123→   123→      const cur = s.question_ids[s.current] ?? String(s.current + 1);
+   124→   124→      return {
+   125→   125→        ...s,
+   126→   126→        q_times: { ...s.q_times, [cur]: (s.q_times[cur] ?? 0) + elapsed },
+   127→   127→        current: nextIndex,
+   128→   128→        q_entered_at: Date.now(),
+   129→   129→      };
+   130→   130→    },
+   131→   131→    []
+   132→   132→  );
+   133→   133→
+   134→   134→  const persist = useCallback(
+   135→   135→    (s: ActiveSession) => {
+   136→   136→      onPersist(s);
+   137→   137→      void saveSession(s);
+   138→   138→    },
+   139→   139→    [onPersist]
+   140→   140→  );
+   141→   141→
+   142→   142→  function goTo(index: number) {
+   143→   143→    if (index < 0 || index >= slots.length) return;
+   144→   144→    persist(commitTime(sessionRef.current, index));
+   145→   145→  }
+   146→   146→
+   147→   147→  function setAnswer(slot: string, value: number | string | null) {
+   148→   148→    const s = sessionRef.current;
+   149→   149→    persist({ ...s, answers: { ...s.answers, [slot]: value } });
+   150→   150→  }
+   151→   151→
+   152→   152→  function markAndNext() {
+   153→   153→    const s = sessionRef.current;
+   154→   154→    const cur = s.question_ids[s.current] ?? String(s.current + 1);
+   155→   155→    const marked = s.marked.includes(cur) ? s.marked : [...s.marked, cur];
+   156→   156→    const next = Math.min(s.current + 1, slots.length - 1);
+   157→   157→    persist({ ...commitTime({ ...s, marked }, next), marked });
+   158→   158→  }
+   159→   159→
+   160→   160→  function saveAndNext() {
+   161→   161→    const s = sessionRef.current;
+   162→   162→    const next = Math.min(s.current + 1, slots.length - 1);
+   163→   163→    persist(commitTime(s, next));
+   164→   164→  }
+   165→   165→
+   166→   166→  function clearResponse() {
+   167→   167→    const s = sessionRef.current;
+   168→   168→    if (!currentSlot) return;
+   169→   169→    persist({
+   170→   170→      ...s,
+   171→   171→      answers: { ...s.answers, [currentSlot.slot]: null },
+   172→   172→      marked: s.marked.filter((m) => m !== currentSlot.slot),
+   173→   173→    });
+   174→   174→  }
+   175→   175→
+   176→   176→  // ── submit ──
+   177→   177→  const submit = useCallback(async () => {
+   178→   178→    if (submittingRef.current) return;
+   179→   179→    submittingRef.current = true;
+   180→   180→    const s = sessionRef.current;
+   181→   181→    // finalize last question's time
+   182→   182→    const elapsed = (Date.now() - s.q_entered_at) / 1000;
+   183→   183→    const cur = s.question_ids[s.current] ?? String(s.current + 1);
+   184→   184→    const qTimes = { ...s.q_times, [cur]: (s.q_times[cur] ?? 0) + elapsed };
+   185→   185→
+   186→   186→    const responses: ResponseRecord[] = [];
+   187→   187→    let score = 0;
+   188→   188→    const subjectScores: Record<Subject, number> = {
+   189→   189→      Physics: 0,
+   190→   190→      Chemistry: 0,
+   191→   191→      Mathematics: 0,
+   192→   192→    };
+   193→   193→
+   194→   194→    if (s.mode === "cbt") {
+   195→   195→      for (const id of s.question_ids) {
+   196→   196→        const q = qMap.get(id);
+   197→   197→        if (!q) continue;
+   198→   198→        const raw = s.answers[id];
+   199→   199→        const selected = raw === undefined || raw === "" || raw === null ? null : raw;
+   200→   200→        const attempted = selected !== null;
+   201→   201→        let correct = false;
+   202→   202→        if (attempted) {
+   203→   203→          if (q.type === "MCQ") correct = selected === q.answer;
+   204→   204→          else {
+   205→   205→            const u = Number(selected);
+   206→   206→            correct =
+   207→   207→              !Number.isNaN(u) &&
+   208→   208→              Math.abs(u - Number(q.answer)) <= (q.tolerance || 0) + 1e-9;
+   209→   209→          }
+   210→   210→        }
+   211→   211→        const marks = attempted ? (correct ? 4 : -1) : 0;
+   212→   212→        score += marks;
+   213→   213→        subjectScores[q.subject] += marks;
+   214→   214→        responses.push({
+   215→   215→          id: uid(),
+   216→   216→          test_id: s.test_id,
+   217→   217→          question_id: id,
+   218→   218→          selected,
+   219→   219→          correct,
+   220→   220→          attempted,
+   221→   221→          time_spent: Math.round(qTimes[id] ?? 0),
+   222→   222→          error_tag: null,
+   223→   223→          subject: q.subject,
+   224→   224→          chapter: q.chapter,
+   225→   225→          question_snippet: q.question.slice(0, 240),
+   226→   226→          correct_answer: q.answer,
+   227→   227→          type: q.type,
+   228→   228→          options: q.options,
+   229→   229→        });
+   230→   230→      }
+   231→   231→      const max = s.question_ids.length * 4;
+   232→   232→      const record: TestRecord = {
+   233→   233→        id: s.test_id,
+   234→   234→        date: todayStr(),
+   235→   235→        created_at: Date.now(),
+   236→   236→        name: s.name,
+   237→   237→        source: "in-app",
+   238→   238→        type: s.test_type,
+   239→   239→        duration_min: s.duration_min,
+   240→   240→        score,
+   241→   241→        max_score: max,
+   242→   242→        subject_scores: subjectScores,
+   243→   243→        question_ids: s.question_ids,
+   244→   244→      };
+   245→   245→      await (await import("@/lib/idb")).bulkPut("responses", responses);
+   246→   246→      await (await import("@/lib/idb")).put("tests", record);
+   247→   247→      onFinish(s.test_id);
+   248→   248→      return;
+   249→   249→    }
+   250→   250→
+   251→   251→    // PDF mode
+   252→   252→    const meta = s.pdf_meta!;
+   253→   253→    const keyMap = new Map(meta.key.map((k) => [k.no, k.answer]));
+   254→   254→    for (let no = 1; no <= meta.total_questions; no++) {
+   255→   255→      const raw = s.answers[String(no)];
+   256→   256→      const selected =
+   257→   257→        raw === undefined || raw === "" || raw === null ? null : String(raw);
+   258→   258→      const attempted = selected !== null;
+   259→   259→      const ans = keyMap.get(no);
+   260→   260→      let correct = false;
+   261→   261→      if (attempted && ans !== undefined) {
+   262→   262→        if (/^[A-D]$/.test(ans)) correct = selected!.toUpperCase() === ans;
+   263→   263→        else {
+   264→   264→          const u = Number(selected);
+   265→   265→          const a = Number(ans);
+   266→   266→          correct = !Number.isNaN(u) && Math.abs(u - a) <= 1e-9;
+   267→   267→        }
+   268→   268→      }
+   269→   269→      const marks = attempted ? (correct ? 4 : -1) : 0;
+   270→   270→      score += marks;
+   271→   271→      subjectScores[meta.subject] += marks;
+   272→   272→      responses.push({
+   273→   273→        id: uid(),
+   274→   274→        test_id: s.test_id,
+   275→   275→        question_id: `pdf:${s.test_id}:${no}`,
+   276→   276→        selected: attempted ? selected : null,
+   277→   277→        correct,
+   278→   278→        attempted,
+   279→   279→        time_spent: Math.round(qTimes[String(no)] ?? 0),
+   280→   280→        error_tag: null,
+   281→   281→        subject: meta.subject,
+   282→   282→        chapter: meta.chapter,
+   283→   283→        question_snippet: `PDF Q${no} (page ${pageForQuestion(s, no)})`,
+   284→   284→        correct_answer: ans ?? "?",
+   285→   285→        type: /^[A-D]$/.test(String(ans)) ? "MCQ" : "numerical",
+   286→   286→        options: /^[A-D]$/.test(String(ans)) ? ["A", "B", "C", "D"] : [],
+   287→   287→      });
+   288→   288→    }
+   289→   289→    const record: TestRecord = {
+   290→   290→      id: s.test_id,
+   291→   291→      date: todayStr(),
+   292→   292→      created_at: Date.now(),
+   293→   293→      name: s.name,
+   294→   294→      source: "PDF",
+   295→   295→      type: "pdf",
+   296→   296→      duration_min: s.duration_min,
+   297→   297→      score,
+   298→   298→      max_score: meta.total_questions * 4,
+   299→   299→      subject_scores: subjectScores,
+   300→   300→      pdf_meta: meta,
+   301→   301→    };
+   302→   302→    const idb = await import("@/lib/idb");
+   303→   303→    await idb.bulkPut("responses", responses);
+   304→   304→    await idb.put("tests", record);
+   305→   305→    onFinish(s.test_id);
+   306→   306→  }, [qMap, onFinish]);
+   307→   307→
+   308→   308→  // auto-submit when the clock hits zero
+   309→   309→  useEffect(() => {
+   310→   310→    if (remaining <= 0 && !submittingRef.current) {
+   311→   311→      void submit();
+   312→   312→    }
+   313→   313→  }, [remaining, submit]);
+   314→   314→
+   315→   315→  // warn before leaving with a live test
+   316→   316→  useEffect(() => {
+   317→   317→    const h = (e: BeforeUnloadEvent) => {
+   318→   318→      e.preventDefault();
+   319→   319→    };
+   320→   320→    window.addEventListener("beforeunload", h);
+   321→   321→    return () => window.removeEventListener("beforeunload", h);
+   322→   322→  }, []);
+   323→   323→
+   324→   324→  const curNo = currentSlot ? currentSlot.no : 1;
+   325→   325→
+   326→   326→  // ── pdf.js: load document once, render current page ──
+   327→   327→  useEffect(() => {
+   328→   328→    let cancelled = false;
+   329→   329→    if (session.mode !== "pdf" || !pdfBlob) {
+   330→   330→      setPdfErr(session.mode === "pdf" ? "PDF file missing — discard the test and re-import." : null);
+   331→   331→      return;
+   332→   332→    }
+   333→   333→    (async () => {
+   334→   334→      try {
+   335→   335→        const pdfjs = await import("pdfjs-dist");
+   336→   336→        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+   337→   337→        if (!pdfDocRef.current) {
+   338→   338→          const buf = await pdfBlob.arrayBuffer();
+   339→   339→          pdfDocRef.current = await pdfjs.getDocument({ data: buf }).promise;
+   340→   340→        }
+   341→   341→        if (cancelled || !pdfDocRef.current) return;
+   342→   342→        const pageNo = pageForQuestion(sessionRef.current, curNo);
+   343→   343→        const page = await pdfDocRef.current.getPage(Math.min(pageNo, pdfDocRef.current.numPages));
+   344→   344→        if (cancelled) return;
+   345→   345→        const scale = 1.6;
+   346→   346→        const viewport = page.getViewport({ scale });
+   347→   347→        const canvas = document.createElement("canvas");
+   348→   348→        canvas.width = viewport.width;
+   349→   349→        canvas.height = viewport.height;
+   350→   350→        const ctx = canvas.getContext("2d");
+   351→   351→        if (!ctx) return;
+   352→   352→        await page.render({ canvasContext: ctx, viewport }).promise;
+   353→   353→        if (!cancelled) {
+   354→   354→          setPdfPage(canvas);
+   355→   355→          setPdfErr(null);
+   356→   356→        }
+   357→   357→      } catch (e) {
+   358→   358→        if (!cancelled) setPdfErr(`PDF render failed: ${String(e)}`);
+   359→   359→      }
+   360→   360→    })();
+   361→   361→    return () => {
+   362→   362→      cancelled = true;
+   363→   363→    };
+   364→   364→  }, [session.mode, pdfBlob, curNo, session.current]);
+   365→   365→
+   366→   366→  if (slots.length === 0) {
+   367→   367→    return (
+   368→   368→      <div className="text-center py-20">
+   369→   369→        <p className="text-stone-500">This test has no questions available.</p>
+   370→   370→        <Button variant="outline" className="mt-4" onClick={() => onFinish("")}>
+   371→   371→          Back
+   372→   372→        </Button>
+   373→   373→      </div>
+   374→   374→    );
+   375→   375→  }
+   376→   376→
+   377→   377→  const curQ: Question | undefined =
+   378→   378→    session.mode === "cbt" && currentSlot ? qMap.get(currentSlot.slot) : undefined;
+   379→   379→  const selected = currentSlot ? session.answers[currentSlot.slot] : undefined;
+   380→   380→  const isMarked = currentSlot ? session.marked.includes(currentSlot.slot) : false;
+   381→   381→  const answeredCount = Object.values(session.answers).filter(
+   382→   382→    (v) => v !== null && v !== undefined && v !== ""
+   383→   383→  ).length;
+   384→   384→
+   385→   385→  // active section derived from current question's subject
+   386→   386→  const activeSection = currentSlot?.subject ?? sections[0];
+   387→   387→
+   388→   388→  function sectionTabClick(subj: Subject) {
+   389→   389→    const range = sectionRanges.find((r) => r.subject === subj);
+   390→   390→    if (range) goTo(range.start);
+   391→   391→  }
+   392→   392→
+   393→   393→  return (
+   394→   394→    <div className="space-y-4">
+   395→   395→      {/* header */}
+   396→   396→      <div
+   397→   397→        className={cn(
+   398→   398→          "bg-white border rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap",
+   399→   399→          remaining < 120 ? "border-red-300" : "border-stone-200"
+   400→   400→        )}
+   401→   401→      >
+   402→   402→        <div className="min-w-0">
+   403→   403→          <div className="font-semibold text-stone-900 truncate">{session.name}</div>
+   404→   404→          <div className="text-xs text-stone-400">
+   405→   405→            {slots.length} questions · +4 / −1 / 0 · numericals included
+   406→   406→          </div>
+   407→   407→        </div>
+   408→   408→        <div className="flex items-center gap-3">
+   409→   409→          <div
+   410→   410→            className={cn(
+   411→   411→              "text-2xl font-black tabular-nums px-4 py-1.5 rounded-lg",
+   412→   412→              remaining < 120 ? "bg-red-50 text-red-600" : "bg-stone-100 text-stone-800"
+   413→   413→            )}
+   414→   414→            aria-live="polite"
+   415→   415→          >
+   416→   416→            {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")}
+   417→   417→          </div>
+   418→   418→          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+   419→   419→            <AlertDialogTrigger asChild>
+   420→   420→              <Button className="bg-emerald-700 hover:bg-emerald-800">Submit</Button>
+   421→   421→            </AlertDialogTrigger>
+   422→   422→            <AlertDialogContent>
+   423→   423→              <AlertDialogHeader>
+   424→   424→                <AlertDialogTitle>Submit test?</AlertDialogTitle>
+   425→   425→                <AlertDialogDescription>
+   426→   426→                  {answeredCount} answered · {slots.length - answeredCount} unattempted. After
+   427→   427→                  submit you tag every mistake — that&apos;s where the marks come back.
+   428→   428→                </AlertDialogDescription>
+   429→   429→              </AlertDialogHeader>
+   430→   430→              <AlertDialogFooter>
+   431→   431→                <AlertDialogCancel>Keep solving</AlertDialogCancel>
+   432→   432→                <AlertDialogAction
+   433→   433→                  className="bg-emerald-700 hover:bg-emerald-800"
+   434→   434→                  onClick={() => void submit()}
+   435→   435→                >
+   436→   436→                  Submit &amp; analyze
+   437→   437→                </AlertDialogAction>
+   438→   438→              </AlertDialogFooter>
+   439→   439→            </AlertDialogContent>
+   440→   440→          </AlertDialog>
+   441→   441→        </div>
+   442→   442→      </div>
+   443→   443→
+   444→   444→      <div className="grid lg:grid-cols-4 gap-4">
+   445→   445→        {/* main panel */}
+   446→   446→        <div className="lg:col-span-3 bg-white border border-stone-200 rounded-xl p-4 min-h-[420px] flex flex-col">
+   447→   447→          {session.mode === "pdf" ? (
+   448→   448→            <div className="flex-1 flex flex-col">
+   449→   449→              <div className="flex items-center justify-between mb-2">
+   450→   450→                <Badge variant="outline" className="border-stone-300 text-stone-500">
+   451→   451→                  PDF page {pageForQuestion(session, curNo)}
+   452→   452→                </Badge>
+   453→   453→                <span className="text-xs text-stone-400">
+   454→   454→                  {pdfErr ? "PDF render failed — check the file" : "question paper on the right →"}
+   455→   455→                </span>
+   456→   456→              </div>
+   457→   457→              <div className="border border-stone-200 rounded-lg overflow-auto max-h-[420px] bg-stone-100">
+   458→   458→                {pdfErr ? (
+   459→   459→                  <div className="p-6 text-sm text-red-500">{pdfErr}</div>
+   460→   460→                ) : pdfPage ? (
+   461→   461→                  <canvas
+   462→   462→                    className="w-full h-auto block"
+   463→   463→                    ref={(node) => {
+   464→   464→                      if (node && pdfPage) {
+   465→   465→                        const ctx = node.getContext("2d");
+   466→   466→                        if (ctx) {
+   467→   467→                          node.width = pdfPage.width;
+   468→   468→                          node.height = pdfPage.height;
+   469→   469→                          ctx.drawImage(pdfPage, 0, 0);
+   470→   470→                        }
+   471→   471→                      }
+   472→   472→                    }}
+   473→   473→                  />
+   474→   474→                ) : (
+   475→   475→                  <div className="p-10 text-center text-sm text-stone-400">Rendering page…</div>
+   476→   476→                )}
+   477→   477→              </div>
+   478→   478→            </div>
+   479→   479→          ) : null}
+   480→   480→
+   481→   481→          {session.mode === "pdf" && currentSlot ? (
+   482→   482→            <div className="flex-1 flex flex-col mt-3">
+   483→   483→              <div className="flex items-center justify-between gap-2 mb-3">
+   484→   484→                <div className="flex items-center gap-2">
+   485→   485→                  <span className="text-sm font-bold text-stone-900">Q{currentSlot.no}</span>
+   486→   486→                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+   487→   487→                    {pdfKeyIsLetter(session, currentSlot.no) ? "MCQ" : "NUMERICAL"}
+   488→   488→                  </Badge>
+   489→   489→                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+   490→   490→                    {session.pdf_meta?.chapter}
+   491→   491→                  </Badge>
+   492→   492→                </div>
+   493→   493→                <span className="text-xs text-stone-400">
+   494→   494→                  time on this Q:{" "}
+   495→   495→                  {Math.round(
+   496→   496→                    (now - session.q_entered_at) / 1000 +
+   497→   497→                      (session.q_times[currentSlot.slot] ?? 0)
+   498→   498→                  )}
+   499→   499→                  s
+   500→   500→                </span>
+   501→   501→              </div>
+   502→   502→              <p className="text-sm text-stone-500 mb-4">
+   503→   503→                Read the question from the paper above, then answer here:
+   504→   504→              </p>
+   505→   505→              {pdfKeyIsLetter(session, currentSlot.no) ? (
+   506→   506→                <div className="flex gap-2">
+   507→   507→                  {LETTERS.map((l, i) => (
+   508→   508→                    <button
+   509→   509→                      key={l}
+   510→   510→                      onClick={() => setAnswer(currentSlot.slot, l)}
+   511→   511→                      className={cn(
+   512→   512→                        "w-14 h-14 rounded-lg border text-lg font-bold transition-colors",
+   513→   513→                        selected === l
+   514→   514→                          ? "border-emerald-700 bg-emerald-50 text-emerald-800"
+   515→   515→                          : "border-stone-200 hover:border-emerald-400 hover:bg-stone-50"
+   516→   516→                      )}
+   517→   517→                    >
+   518→   518→                      {l}
+   519→   519→                    </button>
+   520→   520→                  ))}
+   521→   521→                </div>
+   522→   522→              ) : (
+   523→   523→                <div className="max-w-xs">
+   524→   524→                  <p className="text-xs text-stone-400 mb-1.5">Your answer (number):</p>
+   525→   525→                  <Input
+   526→   526→                    value={typeof selected === "string" || typeof selected === "number" ? String(selected) : ""}
+   527→   527→                    onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
+   528→   528→                    inputMode="decimal"
+   529→   529→                    placeholder="type the value"
+   530→   530→                  />
+   531→   531→                  <p className="text-[11px] text-stone-400 mt-2">
+   532→   532→                    Numericals carry −1 for wrong entries — leave blank instead of guessing.
+   533→   533→                  </p>
+   534→   534→                </div>
+   535→   535→              )}
+   536→   536→            </div>
+   537→   537→          ) : curQ ? (
+   538→   538→            <div className="flex-1 flex flex-col">
+   539→   539→              <div className="flex items-center justify-between gap-2 mb-3">
+   540→   540→                <div className="flex items-center gap-2">
+   541→   541→                  <span className="text-sm font-bold text-stone-900">Q{currentSlot?.no}</span>
+   542→   542→                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+   543→   543→                    {curQ.type === "numerical" ? "NUMERICAL" : "MCQ"}
+   544→   544→                  </Badge>
+   545→   545→                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+   546→   546→                    {curQ.chapter}
+   547→   547→                  </Badge>
+   548→   548→                </div>
+   549→   549→                <span className="text-xs text-stone-400">
+   550→   550→                  time on this Q: {Math.round(((now - session.q_entered_at) / 1000 + (session.q_times[currentSlot.slot] ?? 0)))}s
+   551→   551→                </span>
+   552→   552→              </div>
+   553→   553→              <p className="text-base text-stone-900 mb-5 leading-relaxed">{curQ.question}</p>
+   554→   554→
+   555→   555→              {curQ.type === "MCQ" ? (
+   556→   556→                <div className="space-y-2">
+   557→   557→                  {curQ.options.map((opt, i) => (
+   558→   558→                    <button
+   559→   559→                      key={i}
+   560→   560→                      onClick={() => setAnswer(currentSlot.slot, i)}
+   561→   561→                      className={cn(
+   562→   562→                        "w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors flex items-center gap-3",
+   563→   563→                        selected === i
+   564→   564→                          ? "border-emerald-700 bg-emerald-50 font-medium"
+   565→   565→                          : "border-stone-200 hover:border-emerald-400 hover:bg-stone-50"
+   566→   566→                      )}
+   567→   567→                    >
+   568→   568→                      <span
+   569→   569→                        className={cn(
+   570→   570→                          "w-6 h-6 rounded-full grid place-items-center text-xs font-bold border shrink-0",
+   571→   571→                          selected === i
+   572→   572→                            ? "bg-emerald-700 text-white border-emerald-700"
+   573→   573→                            : "border-stone-300 text-stone-500"
+   574→   574→                        )}
+   575→   575→                      >
+   576→   576→                        {LETTERS[i]}
+   577→   577→                      </span>
+   578→   578→                      {opt}
+   579→   579→                    </button>
+   580→   580→                  ))}
+   581→   581→                </div>
+   582→   582→              ) : (
+   583→   583→                <div className="max-w-xs">
+   584→   584→                  <p className="text-xs text-stone-400 mb-1.5">Your answer (number):</p>
+   585→   585→                  <Input
+   586→   586→                    value={typeof selected === "string" || typeof selected === "number" ? String(selected) : ""}
+   587→   587→                    onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
+   588→   588→                    inputMode="decimal"
+   589→   589→                    placeholder="type the value"
+   590→   590→                  />
+   591→   591→                  <p className="text-[11px] text-stone-400 mt-2">
+   592→   592→                    Exact match within the question&apos;s tolerance. Numericals carry −1 for wrong
+   593→   593→                    entries — leave blank instead of guessing.
+   594→   594→                  </p>
+   595→   595→                </div>
+   596→   596→              )}
+   597→   597→            </div>
+   598→   598→          ) : (
+   599→   599→            <div className="flex-1 grid place-items-center text-stone-400 text-sm">
+   600→   600→              Question not found in the bank — it may have been deleted.
+   601→   601→            </div>
+   602→   602→          )}
+   603→   603→
+   604→   604→          {/* action bar */}
+   605→   605→          <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-stone-100">
+   606→   606→            <Button variant="outline" size="sm" onClick={clearResponse}>
+   607→   607→              Clear Response
+   608→   608→            </Button>
+   609→   609→            <div className="flex-1" />
+   610→   610→            <Button
+   611→   611→              variant="outline"
+   612→   612→              size="sm"
+   613→   613→              onClick={markAndNext}
+   614→   614→              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+   615→   615→            >
+   616→   616→              {isMarked ? "Marked ✓ ·" : "Mark for Review &"} Next
+   617→   617→            </Button>
+   618→   618→            <Button
+   619→   619→              size="sm"
+   620→   620→              onClick={saveAndNext}
+   621→   621→              className="bg-emerald-700 hover:bg-emerald-800"
+   622→   622→            >
+   623→   623→              Save &amp; Next
+   624→   624→            </Button>
+   625→   625→          </div>
+   626→   626→        </div>
+   627→   627→
+   628→   628→        {/* palette rail */}
+   629→   629→        <div className="bg-white border border-stone-200 rounded-xl p-4">
+   630→   630→          <div className="flex flex-wrap gap-1.5 mb-3">
+   631→   631→            {sections.map((s) => (
+   632→   632→              <button
+   633→   633→                key={s}
+   634→   634→                onClick={() => sectionTabClick(s)}
+   635→   635→                className={cn(
+   636→   636→                  "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+   637→   637→                  activeSection === s
+   638→   638→                    ? "bg-stone-900 text-white"
+   639→   639→                    : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+   640→   640→                )}
+   641→   641→              >
+   642→   642→                {s} ({slots.filter((x) => x.subject === s).length})
+   643→   643→              </button>
+   644→   644→            ))}
+   645→   645→          </div>
+   646→   646→
+   647→   647→          <div className="grid grid-cols-7 gap-1.5 mb-3 max-h-64 overflow-y-auto p-0.5">
+   648→   648→            {slots.map((s, i) => {
+   649→   649→              const ans = session.answers[s.slot];
+   650→   650→              const answered = ans !== null && ans !== undefined && ans !== "";
+   651→   651→              const marked = session.marked.includes(s.slot);
+   652→   652→              const isCurrent = i === session.current;
+   653→   653→              return (
+   654→   654→                <button
+   655→   655→                  key={s.slot}
+   656→   656→                  onClick={() => goTo(i)}
+   657→   657→                  className={cn(
+   658→   658→                    "w-8 h-8 rounded-md text-xs font-semibold border transition-colors relative",
+   659→   659→                    answered
+   660→   660→                      ? "bg-emerald-600 text-white border-emerald-600"
+   661→   661→                      : "bg-white text-stone-600 border-stone-300",
+   662→   662→                    marked && "bg-purple-600 text-white border-purple-600",
+   663→   663→                    isCurrent && "ring-4 ring-yellow-300 ring-offset-0"
+   664→   664→                  )}
+   665→   665→                  aria-label={`Question ${s.no}${answered ? ", answered" : ""}${marked ? ", marked" : ""}`}
+   666→   666→                >
+   667→   667→                  {s.no}
+   668→   668→                  {answered && marked ? (
+   669→   669→                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white" />
+   670→   670→                  ) : null}
+   671→   671→                </button>
+   672→   672→              );
+   673→   673→            })}
+   674→   674→          </div>
+   675→   675→
+   676→   676→          <div className="text-[11px] text-stone-500 space-y-1.5 border-t border-stone-100 pt-3">
+   677→   677→            <div className="flex items-center gap-2">
+   678→   678→              <span className="w-4 h-4 rounded bg-emerald-600 inline-block" /> Answered
+   679→   679→            </div>
+   680→   680→            <div className="flex items-center gap-2">
+   681→   681→              <span className="w-4 h-4 rounded bg-purple-600 inline-block" /> Marked for review
+   682→   682→            </div>
+   683→   683→            <div className="flex items-center gap-2">
+   684→   684→              <span className="w-4 h-4 rounded bg-white border border-stone-300 inline-block" /> Not
+   685→   685→              answered
+   686→   686→            </div>
+   687→   687→            <div className="flex items-center gap-2">
+   688→   688→              <span className="w-4 h-4 rounded bg-white border-2 border-yellow-300 inline-block" />{" "}
+   689→   689→              Current
+   690→   690→            </div>
+   691→   691→          </div>
+   692→   692→
+   693→   693→          <div className="mt-3 pt-3 border-t border-stone-100 text-xs text-stone-500">
+   694→   694→            <div className="flex justify-between">
+   695→   695→              <span>Answered</span>
+   696→   696→              <span className="font-semibold tabular-nums">{answeredCount}</span>
+   697→   697→            </div>
+   698→   698→            <div className="flex justify-between">
+   699→   699→              <span>Marked</span>
+   700→   700→              <span className="font-semibold tabular-nums">{session.marked.length}</span>
+   701→   701→            </div>
+   702→   702→          </div>
+   703→   703→
+   704→   704→          <AlertDialog>
+   705→   705→            <AlertDialogTrigger asChild>
+   706→   706→              <Button
+   707→   707→                variant="ghost"
+   708→   708→                size="sm"
+   709→   709→                className="w-full mt-3 text-red-500 hover:text-red-600 hover:bg-red-50"
+   710→   710→              >
+   711→   711→                Abandon test
+   712→   712→              </Button>
+   713→   713→            </AlertDialogTrigger>
+   714→   714→            <AlertDialogContent>
+   715→   715→              <AlertDialogHeader>
+   716→   716→                <AlertDialogTitle>Abandon this test?</AlertDialogTitle>
+   717→   717→                <AlertDialogDescription>
+   718→   718→                  The attempt will be discarded. Nothing gets logged — no score, no tags.
+   719→   719→                </AlertDialogDescription>
+   720→   720→              </AlertDialogHeader>
+   721→   721→              <AlertDialogFooter>
+   722→   722→                <AlertDialogCancel>Keep going</AlertDialogCancel>
+   723→   723→                <AlertDialogAction
+   724→   724→                  className="bg-red-600 hover:bg-red-700"
+   725→   725→                  onClick={() => onFinish("")}
+   726→   726→                >
+   727→   727→                  Abandon
+   728→   728→                </AlertDialogAction>
+   729→   729→              </AlertDialogFooter>
+   730→   730→            </AlertDialogContent>
+   731→   731→          </AlertDialog>
+   732→   732→        </div>
+   733→   733→      </div>
+   734→   734→    </div>
+   735→   735→  );
+   736→   736→}
+   737→   737→
+   738→   738→function pageForQuestion(s: ActiveSession, no: number): number {
+   739→   739→  const meta = s.pdf_meta;
+   740→   740→  if (!meta) return 1;
+   741→   741→  const pages = Math.max(1, meta.end_page - meta.start_page + 1);
+   742→   742→  const perPage = Math.ceil(meta.total_questions / pages);
+   743→   743→  return meta.start_page + Math.floor((no - 1) / perPage);
+   744→   744→}
+   745→   745→
+   746→   746→function pdfKeyIsLetter(s: ActiveSession, no: number): boolean {
+   747→   747→  const ans = s.pdf_meta?.key.find((k) => k.no === no)?.answer;
+   748→   748→  return ans !== undefined && /^[A-D]$/.test(ans);
+   749→   749→}
+   750→   750→

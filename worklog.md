@@ -21,3 +21,18 @@ Stage Summary:
 - Deliverable: runnable Next.js app on port 3000 (single / route), 100% local-first (IndexedDB, no backend/auth), spec v2 fully implemented incl. all 8 filter-table corrections
 - Demo assets: /download/demo-paper.pdf (try PDF Test flow), demo questions via Data tab
 - Key decisions: recharts instead of Chart.js (stack built-in), pdf.js worker served locally, responses denormalize subject/chapter for join-free analytics, external "correct under time" = attempts − wrong
+
+---
+Task ID: 2
+Agent: main (Super Z)
+Task: Explain how CBT/PDF test creation works without AI; research web; produce full-usability plan (PLAN.md) closing MVP -> daily-driver gap.
+
+Work Log:
+- Read worklog Task 1 + audited built code: PdfImport.tsx (upload -> page range + total Qs + duration -> answer-key regex parser with coverage warnings -> session), Player.tsx (pageForQuestion linear estimate, fixed scale 1.6, no manual page nav, +4/-1/0 scoring, PDF numericals exact-match 1e-9, beforeunload guard)
+- Ran 6 web searches (saved to scripts/research/*.json): exam pattern 2026/27 stable (75Q, 20+5, +4/-1 numerical too), deleted chapters confirmed (Mathematical Reasoning/Inductions, Communication Systems, Solid State), NTA Abhyas + SATHEE validated as free mock sources, topper method (error notebook, high-weightage first) matches app design
+- Wrote PLAN.md: Page-Mode explanation + 4-approach comparison, research table, v1 audit, 8-item gap analysis (G1 NTA (1)-(4) key mapping, G2 manual page flip/zoom/pin, G3 PDF tolerance, G4 storage persist/export nudge, G5 full-paper 3-section mode, G6 key-later self-mark, G7 image paste, G8 onboarding), 3-sprint roadmap (A correctness+ergonomics, B full-paper, C key-later) then freeze, operating loop, acceptance checklist
+
+Stage Summary:
+- Key insight: PDF is never cut/parsed — user maps pages + total Qs, app generates palette, only the answer key is regex-parsed (trivially reliable)
+- Real gaps found in built code: no manual PDF page navigation, no option-number key mapping, no PDF numerical tolerance, no full-paper mode, no key-later mode
+- PLAN.md at project root; Sprints A/B/C each sized for one 45-60 min session; awaiting user go for Sprint A

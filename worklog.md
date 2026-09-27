@@ -52,3 +52,17 @@ Stage Summary:
 - PLAN.md = authoritative full-app roadmap; 6 sprints then freeze (~15 weeks to JEE Main 2027 S1)
 - New features added beyond v2 plan: retry-wrong-as-new-test, exam countdown, streak, key-PDF upload (digital only), image paste, question edit, deep links, PWA
 - Awaiting user go for Sprint A
+
+---
+Task ID: 4
+Agent: main (Super Z)
+Task: Answer 4 follow-up questions (test duration flexibility, dirty keys, multi-correct options, solutions for non-standard questions) and fold fixes into PLAN.md.
+
+Work Log:
+- Verified in code: duration + question count already fully configurable in PDF mode and bank tests (180/75 is only the full-mock preset); discovered real gap: PDF palette always starts at Q1, so sheets numbered Q21-Q45 mis-align and attempted-keyless questions auto-score -1
+- PLAN.md edits: new sections 1.4 (dirty keys ladder / two-option keys / bonus flag), 1.5 (test length always yours + first-Q# fix), 1.6 (review without answer sheets: tag + optional note/photo); Sprint A extended A6 first-question-number, A7 multi-answer key cells + bonus flag, A8 duration preset chips; Sprint D extended D7 one-line per-Q note, D8 solution-photo attach; master verdict table + exclusions + acceptance checklist updated
+
+Stage Summary:
+- Key clarifications delivered: multi-correct QUESTIONS excluded (Advanced-only) but multi-answer KEYS supported; review needs zero mandatory typing (tag 1-tap, note/photo optional); dirty keys never block (parse -> preview -> coverage -> editable grid)
+- Sprint A now 8 items, Sprint D now 8 items; still sized for one session each (A grew by 3xS items)
+- Awaiting user go for Sprint A

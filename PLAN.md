@@ -37,6 +37,21 @@ The PDF is only ever **rendered** to a canvas (display) — never parsed. The on
 - **Digital key PDF** (NTA official keys, most publisher keys — selectable text): pdf.js can extract the text layer and the same regex builds the list. **No AI needed** → added to Sprint A as "Key-PDF upload".
 - **Scanned/photo key** (image inside a PDF): unreadable without OCR = AI → **excluded forever**. Fallback: type/paste the key, or use the editable key grid (Sprint A) — 30 numbers takes ~2 minutes.
 
+### 1.4 Dirty keys, two-correct-option keys & bonus questions
+Real keys are dirty in exactly three ways; all three are handled without AI:
+
+1. **Messy formatting** — the parser tolerates the common shapes ("1. A", "1A", "1) b", "1. 42"), shows a live preview of what it understood, and flags every missing number. Final safety net (Sprint A3): an **editable key grid** — N cells, fix any cell by hand. A dirty key can cost you 2 minutes; it can never block a test.
+2. **Two correct options** — NTA's revised keys sometimes accept two options ("7 → B/C"). Key cells will accept multiple values; checking becomes `selected ∈ {B, C}` → +4. (Sprint A7)
+3. **Bonus / dropped questions** — everyone gets +4 regardless of answer; the grid gets a per-question "bonus" flag. (Sprint A7)
+
+NOT supported: multi-correct *questions* where the student selects several options — that is JEE Advanced only. In JEE Main every question has exactly one answer you can select (even if the official key later accepts two alternatives — case 2 above).
+
+### 1.5 Test length is always yours (never locked to 75/180)
+75 Qs / 180 min is only the **full-mock preset**. In PDF mode *you* type Total questions (your PDF decides — that field is the source of truth) and any Duration. In bank tests, duration is a free input with a 1-min/question suggestion. Sprint A8 adds one-tap preset chips (15/30/60/90/180) on top. Also fixed in Sprint A: sheets whose numbering doesn't start at 1 (e.g. Q21–Q45) currently mis-align — a "First question #" field makes the palette mirror the paper exactly.
+
+### 1.6 Wrong-question review never requires making an answer sheet
+Scoring needs only the key (letters — already exists). Learning from wrongs needs **zero mandatory typing**: the C/F/A/R/T/G tag is one tap and captures *why* it went wrong; Sprint D adds an optional one-line note ("the actual insight") and an optional **solution photo** — snap the printed solution from your coaching material and attach it to that question. Nothing to build for every question; attach only where it's worth it. The retry-wrong test (D1) is the real "solution practice".
+
 ---
 
 ## 2. Research inputs
@@ -75,6 +90,9 @@ Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast s
 | A3 | Editable key grid after paste (fix any mis-parse without retyping text) | S |
 | A4 | Key-PDF upload: pdf.js text-layer extraction → same regex (digital keys only; paste stays as fallback) | M |
 | A5 | Persist PDF blob at file-pick (refresh before Start no longer loses the file) | S |
+| A6 | "First question #" field — palette mirrors the paper's own numbering (sheet Q21–Q45 works; attempted-but-keyless questions no longer auto-scored −1) | S |
+| A7 | Multi-answer key cells ("7 → B/C" for revised NTA keys) + per-question "bonus/dropped" flag (+4 to all) | S |
+| A8 | Duration preset chips (15/30/60/90/180 + custom) in PDF setup — question count always follows your PDF | S |
 
 ### Sprint B — Player speed + full-paper mode
 | # | Item | Size |
@@ -105,6 +123,8 @@ Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast s
 | D4 | Key-later PDF mode: start without key → Correct/Wrong self-mark toggles in review; analytics recompute | M |
 | D5 | Action-linked analytics: amber / repeated-failure rows → one-click "Test this chapter" (pre-filled TestCreate) | S |
 | D6 | Formula sheet: manual add, "Mark learned", link back to source test | S |
+| D7 | Optional one-line note per wrong question in Results ("the actual insight"), stored on the response | S |
+| D8 | Optional solution-photo attach per wrong question (paste/upload → viewable in review); never mandatory | M |
 
 ### Sprint E — Dashboard, tracker & motivation
 | # | Item | Size |
@@ -136,8 +156,8 @@ Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast s
 | Question Bank | **Upgrade** | Edit-in-place, image paste, delete safety |
 | Test Create | **Upgrade** | Full-mock enforcement warning, shuffle, paper preview (small) |
 | Player | **Upgrade** | Keyboard, Previous, NTA colors, full-paper mode, PDF nav/zoom/pin |
-| Results / Review | **Upgrade** | Real Q numbers, filters, retry-wrong, key-later self-mark |
-| PDF Import | **Upgrade** | NTA key mapping, tolerance, key grid, key-PDF upload, blob persistence |
+| Results / Review | **Upgrade** | Real Q numbers, filters, retry-wrong, key-later self-mark, per-Q notes + solution photos |
+| PDF Import | **Upgrade** | NTA key mapping, tolerance, key grid, key-PDF upload, blob persistence, first-Q#, multi-answer keys, presets |
 | External Log | **Upgrade** | Edit-in-place, configurable max, confirm |
 | Syllabus tracker | **Upgrade** | Mobile layout, reschedule, overdue display, test-this-chapter |
 | Formula Sheet | **Upgrade** | Manual add, learned state, source links |
@@ -148,11 +168,13 @@ Cross-cutting: scoring constants (+4/−1/0) duplicated in 4 places; two toast s
 | Cross-device sync server | **Excluded** | JSON export/import stays the only sync (by design) |
 
 ## 5. Excluded forever (unchanged + explicit)
-AI/OCR of scanned keys or papers · multi-correct questions (Advanced-only) · optional Section B (removed from 2025 pattern) · backend/auth/accounts · cloud sync · social · PYQ content database · video · native mobile app · notifications · paid anything.
+AI/OCR of scanned keys or papers · multi-correct questions where several options must be selected (Advanced-only — note: multi-answer KEYS from revised NTA keys ARE supported, A7) · mandatory solution-writing (review = tag + optional note/photo, never a full answer sheet) · optional Section B (removed from 2025 pattern) · backend/auth/accounts · cloud sync · social · PYQ content database · video · native mobile app · notifications · paid anything.
 Phase-2 triggers unchanged: NTA regex paper-parser, mixed-test builder, AnkiConnect, formula print view.
 
 ## 6. Acceptance checklist v3 ("fully functional for an aspirant")
-- [ ] Paste OR upload a digital NTA key → scores correctly, every format (Sprint A)
+- [ ] Paste OR upload a digital NTA key → scores correctly, every format — including dirty keys, two-option keys and bonus questions (Sprint A)
+- [ ] Test length always matches your PDF: any count, any duration, any starting question number (Sprint A)
+- [ ] Wrong-question review with zero mandatory typing: tag + optional note/photo (Sprint D)
 - [ ] A 75-Q PYQ PDF runs as one 180-min test with P/C/M sections (Sprint B)
 - [ ] Player fully keyboard-driven; page-follow never traps you (Sprint B)
 - [ ] No destructive action without confirm; data export/import round-trips losslessly (Sprint C)

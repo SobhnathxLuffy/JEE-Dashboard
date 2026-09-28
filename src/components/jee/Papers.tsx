@@ -1,11 +1,14 @@
 "use client";
 
 // ─── Papers library: stored PDFs, ready to import again without re-uploading ─
+// Row pattern (research: Drive/Notion lists + shadcn data-table guide): compact
+// rows, hover-revealed icon actions, search toolbar, honest storage line.
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { FileText, Search, Download, Pencil, Trash2, FolderOpen, HardDrive } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import type { NavController } from "./App";
-import { EmptyNote, PageTitle, SectionCard } from "./shared";
+import { EmptyState, PageTitle } from "./shared";
 import { del, put, useLive } from "@/lib/idb";
 import type { PaperRecord } from "@/lib/types";
 
@@ -42,12 +45,28 @@ function fmtWhen(ms: number | undefined): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// no-results (search) empty — distinct from the zero-data empty above (NN/g)
+function EmptyNoteFallback({ query, onClear }: { query: string; onClear: () => void }) {
+  return (
+    <div className="text-sm text-muted-foreground border border-dashed border-border rounded-lg px-4 py-6 text-center">
+      No papers match “{query}”.{" "}
+      <button
+        onClick={onClear}
+        className="text-emerald-700 font-medium underline underline-offset-2 hover:text-emerald-800"
+      >
+        Clear search
+      </button>
+    </div>
+  );
+}
+
 export function PapersView({ nav }: { nav: NavController }) {
   const papers = useLive("papers");
   const [renameTarget, setRenameTarget] = useState<PaperRecord | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<PaperRecord | null>(null);
   const [storageUsed, setStorageUsed] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   // best-effort storage footprint (Chrome/Firefox expose the estimate)
   useEffect(() => {
@@ -63,8 +82,17 @@ export function PapersView({ nav }: { nav: NavController }) {
     };
   }, [papers.length]);
 
-  const rows = useMemo(() => [...papers].sort((a, b) => b.added_at - a.added_at), [papers]);
-  const totalBytes = useMemo(() => rows.reduce((a, p) => a + (p.size || 0), 0), [rows]);
+  const rows = useMemo(
+    () =>
+      [...papers]
+        .sort((a, b) => b.added_at - a.added_at)
+        .filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase())),
+    [papers, query]
+  );
+  const totalBytes = useMemo(
+    () => papers.reduce((a, p) => a + (p.size || 0), 0),
+    [papers]
+  );
 
   function importPaper(p: PaperRecord) {
     toast.success(`“${p.name.slice(0, 32)}” loaded — no re-upload needed`);
@@ -107,69 +135,114 @@ export function PapersView({ nav }: { nav: NavController }) {
         }
       />
 
-      {rows.length === 0 ? (
-        <EmptyNote>
-          No papers stored yet. Upload a PDF in <strong>PDF Test</strong> and it lands here
-          automatically — then import it any time with one click.
-        </EmptyNote>
+      {papers.length === 0 ? (
+        <EmptyState
+          icon={FolderOpen}
+          title="No papers yet"
+          description="Add a paper once — it stays in this library and every future test starts from here. Zero re-uploading."
+          primary={() => nav.go("pdf")}
+          primaryLabel="Upload the first paper"
+        />
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
-            <Badge variant="outline" className="border-stone-300 text-stone-600">
-              {rows.length} paper{rows.length === 1 ? "" : "s"}
+          {/* toolbar: search + honest counters (status, not decoration) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search
+                className="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                aria-hidden="true"
+              />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search papers…"
+                className="h-9 w-56 pl-8 text-sm"
+                aria-label="Search papers by name"
+              />
+            </div>
+            <Badge variant="outline" className="border-border text-muted-foreground font-mono tabular-nums">
+              {rows.length === papers.length
+                ? `${papers.length} paper${papers.length === 1 ? "" : "s"}`
+                : `${rows.length} of ${papers.length}`}
             </Badge>
-            <Badge variant="outline" className="border-stone-300 text-stone-600">
-              {fmtBytes(totalBytes)} of PDFs
+            <Badge variant="outline" className="border-border text-muted-foreground font-mono tabular-nums">
+              {fmtBytes(totalBytes)}
             </Badge>
             {storageUsed ? (
-              <span className="text-stone-400">browser storage used: {storageUsed}</span>
+              <span className="text-[11px] text-muted-foreground/70 flex items-center gap-1">
+                <HardDrive className="w-3 h-3" aria-hidden="true" /> browser storage used: {storageUsed}
+              </span>
             ) : null}
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {rows.map((p) => (
-              <SectionCard
-                key={p.id}
-                title={
-                  <span className="block truncate pr-2" title={p.name}>
-                    {p.name}
-                  </span>
-                }
-                subtitle={`${p.num_pages} page${p.num_pages === 1 ? "" : "s"} · ${fmtBytes(p.size)} · added ${fmtWhen(p.added_at)} · last used ${fmtWhen(p.last_used_at)}`}
-              >
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => importPaper(p)}
-                    className="bg-emerald-700 hover:bg-emerald-800 min-h-[40px]"
-                  >
-                    Import test
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => download(p)}>
-                    Download
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setRenameTarget(p);
-                      setRenameDraft(p.name);
-                    }}
-                  >
-                    Rename
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                    onClick={() => setDeleteTarget(p)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </SectionCard>
-            ))}
-          </div>
+          {/* compact rows — actions appear on hover (desktop) / always (touch) */}
+          {rows.length === 0 ? (
+            <EmptyNoteFallback query={query} onClear={() => setQuery("")} />
+          ) : (
+            <ul className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
+              {rows.map((p) => (
+                <li
+                  key={p.id}
+                  className="group flex items-center gap-3 px-3 py-2.5 hover:bg-stone-50 transition-colors"
+                >
+                  <div className="w-9 h-9 rounded-md bg-stone-100 text-stone-400 grid place-items-center shrink-0">
+                    <FileText className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-foreground truncate" title={p.name}>
+                      {p.name}
+                    </div>
+                    <div
+                      className="text-[11px] text-muted-foreground/80 font-mono tabular-nums truncate"
+                      title={`${p.num_pages} page${p.num_pages === 1 ? "" : "s"} · ${fmtBytes(p.size)} · added ${fmtWhen(p.added_at)} · last used ${fmtWhen(p.last_used_at)}`}
+                    >
+                      {p.num_pages} page{p.num_pages === 1 ? "" : "s"} · {fmtBytes(p.size)} · added{" "}
+                      {fmtWhen(p.added_at)} · last used {fmtWhen(p.last_used_at)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
+                    <Button
+                      size="sm"
+                      onClick={() => importPaper(p)}
+                      className="bg-emerald-700 hover:bg-emerald-800 press h-8"
+                    >
+                      Import test
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => download(p)}
+                      aria-label={`Download ${p.name}`}
+                    >
+                      <Download className="w-4 h-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        setRenameTarget(p);
+                        setRenameDraft(p.name);
+                      }}
+                      aria-label={`Rename ${p.name}`}
+                    >
+                      <Pencil className="w-4 h-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                      onClick={() => setDeleteTarget(p)}
+                      aria-label={`Delete ${p.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
 

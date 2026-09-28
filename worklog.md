@@ -178,3 +178,28 @@ Work Log:
 Stage Summary:
 - All 4 requested features live and E2E-verified; lint 0 / tsc 0 / GET 200 / dev.log clean.
 - Design decisions: applyLateKey reuses submit-path semantics exactly (missing key entry scores 0 not −1, bonus +4 for all); replace-key allowed on already-scored pdf tests (same code path, dialog pre-filled); papers export capped at 60MB base64 (documented in _meta.papers_note); chapter filter intentionally locked until a subject is picked (cross-subject chapter names would blur scope).
+
+---
+Task ID: 8
+Agent: main (Super Z)
+Task: UI/UX research (shadcn + Mobbin/SaaSFrame/Page Flows workflow + free galleries: Kombai, Emerald UI, taste-skill, Geist, Linear, Strava, NN/g, NTA CBT, Testbook) → distill into a design language → apply across the JEE app.
+
+Work Log:
+- 12 targeted web searches + 3 parallel research agents (design systems; exam/review UX; library/upload/empty patterns); sources: ui-skills.com taste-skill-v1, vercel.com/geist, linear.app design posts, Strava engineering, Apple HIG, Careers360 NTA palette semantics, Testbook analysis screens, NN/g drag-drop + empty states, shadcn docs, Kombai/Emerald UI galleries
+- Distilled "Quiet Cockpit" design language into DESIGN.md (sources → 12-rule rulebook)
+- globals.css: warm-stone OKLCH tokens, emerald-700 primary + ring, subject-semantic chart ramp, radius 0.5rem, warm dark theme (future-proof), emerald selection, thin warm scrollbars, `press` utility (150ms cubic-bezier(0.16,1,0.3,1) + active:scale-0.98)
+- shared.tsx: StatCard → mono tabular values + CAPS 11px labels + hairline cards; SectionCard hairline; PageTitle token colors; NEW EmptyState (NN/g: icon + one-liner + ONE primary CTA + optional ghost); shared chart vocabulary CH/TIP/GRID/TICK/TICK_MONO; AnswerBits gains `status` prop (You tinted red/emerald by outcome)
+- App.tsx shell: translucent backdrop-blur header, icon nav (10 Lucide 14px icons) with hairline group separators + quiet inactive pills + aria-current, mono north-star, quieter footer; mobile subtitle hidden <sm (word-per-line wrap fix)
+- Papers.tsx: card grid → compact rows (FileText tile, mono meta, hover-revealed icon actions Download/Rename/Delete, always visible <md + focus-within), search toolbar with live count badges + honest storage line, EmptyState zero-data + distinct no-results "Clear search" state
+- Results.tsx: review rows get 4px left status stripes (green/red/amber/grey); AnswerBits status wiring
+- Performance.tsx + Dashboard.tsx: dedupe chart consts into shared imports; lines dot={false}+activeDot (Strava continuous-line rule); mono Y-axis ticks; shared tooltip w/ soft shadow
+- Player.tsx: canvas-confetti single brand burst on submit (dynamic import); palette digits font-mono; current-question ring-4-yellow → ring-2-amber+offset (NTA semantics kept)
+- PdfImport.tsx: dropzone drag-over/drag-leave/drop with ring+bg states + "Drop to upload"; FIXED pre-existing `const ode, setMode]` syntax bug (latent, committed in prior session)
+- Added canvas-confetti + @types (bun)
+- Browser E2E (agent-browser): demo load → 3Q CBT (wrong MCQ, wrong NUM, right MCQ) → submit honesty dialog → confetti fired → Results: stripes + tinted You/Correct both sides + tag chips intact; Performance drill-down + continuous lines + mono numerals; Papers: empty state CTA → upload via dropzone → row + search + no-results state; mobile 390px: header + row truncation fixed, actions always visible; Syllabus/QuestionBank/Formula sweep clean; console/page errors: ZERO; hover-CSS non-application diagnosed as headless-session quirk (rules compiled, verified via CSSOM walk)
+- Cleanup: all test data wiped via Data tab (fresh handoff); lint 0, tsc 0
+
+Stage Summary:
+- App now ships a documented design system (DESIGN.md) instead of ad-hoc styling; every screen shares one voice: warm neutrals, one emerald accent, mono numerals, hairline structure, designed empty states, NTA-honest CBT semantics.
+- Key files: DESIGN.md, globals.css, shared.tsx, App.tsx, Papers.tsx, Results.tsx, Player.tsx, Performance.tsx, Dashboard.tsx, PdfImport.tsx
+- No behavior changes outside Papers list rendering; all 40 features still E2E-verified.

@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+import { CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
 import { get, kvGet, kvSet, put, useLive } from "@/lib/idb";
 import {
   amberQueue,
@@ -39,22 +39,9 @@ import {
 } from "@/lib/analytics";
 import { addDays, fmtSecs, todayStr, type DailyLog } from "@/lib/types";
 
-const CH = {
-  green: "#047857",
-  amber: "#d97706",
-  red: "#dc2626",
-  stone: "#78716c",
-  blueGray: "#475569",
-};
-
-const chartTooltip = {
-  contentStyle: {
-    fontSize: 12,
-    borderRadius: 8,
-    border: "1px solid #e7e5e4",
-    background: "#fff",
-  },
-};
+// CH, GRID, TICK, TICK_MONO and the shared tooltip (TIP) come from shared.tsx —
+// one chart vocabulary across Dashboard and Performance.
+const chartTooltip = TIP;
 
 /** E2: consecutive days where all four blocks are true — ends today if today is
  *  complete, otherwise yesterday (today still in progress never breaks it). */
@@ -461,10 +448,10 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={timelineData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="label" tick={{ ...TICK_MONO }} />
                   <YAxis
-                    tick={{ fontSize: 11 }}
+                    tick={TICK_MONO}
                     tickFormatter={timelineMode === "pct" ? (v: number) => `${v}%` : undefined}
                   />
                   <Tooltip {...chartTooltip} />
@@ -473,7 +460,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
                     dataKey={timelineMode === "pct" ? "pct" : "score"}
                     stroke={CH.green}
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: CH.green }}
+                    dot={false} activeDot={{ r: 4, fill: CH.green }}
                     name={timelineMode === "pct" ? "% of max" : "score"}
                   />
                 </LineChart>
@@ -489,9 +476,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={subjAcc} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
+                  <YAxis domain={[0, 100]} tick={{ ...TICK_MONO }} />
                   <Tooltip {...chartTooltip} />
                   <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
                   <Bar dataKey="accuracy" name="accuracy %" radius={[4, 4, 0, 0]}>
@@ -518,9 +505,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={tagsWithPct} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="tag" tick={{ fontSize: 10 }} interval={0} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="tag" tick={TICK} interval={0} />
+                  <YAxis allowDecimals={false} tick={{ ...TICK_MONO }} />
                   <Tooltip content={<TagPctTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
                   <Bar dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -539,9 +526,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={negs} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={0} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="label" tick={TICK} interval={0} />
+                  <YAxis tick={{ ...TICK_MONO }} />
                   <Tooltip {...chartTooltip} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="actual" name="actual" fill={CH.green} radius={[3, 3, 0, 0]} />
@@ -559,9 +546,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={timeSubj} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="subject" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
+                  <YAxis tick={{ ...TICK_MONO }} />
                   <Tooltip {...chartTooltip} />
                   <Bar dataKey="minutes" name="minutes" fill={CH.amber} radius={[4, 4, 0, 0]} />
                 </BarChart>

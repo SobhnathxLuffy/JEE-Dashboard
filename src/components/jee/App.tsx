@@ -8,6 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  LayoutDashboard,
+  FilePlus2,
+  FileText,
+  FolderOpen,
+  ClipboardList,
+  Library,
+  ChartLine,
+  ListTree,
+  Sigma,
+  Database,
+  type LucideIcon,
+} from "lucide-react";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -64,17 +77,26 @@ export type ViewName =
   | "player"
   | "results";
 
-const NAV: { id: ViewName; label: string }[] = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "test", label: "New CBT" },
-  { id: "pdf", label: "PDF Test" },
-  { id: "papers", label: "Papers" },
-  { id: "external", label: "Log External" },
-  { id: "bank", label: "Question Bank" },
-  { id: "performance", label: "Performance" },
-  { id: "syllabus", label: "Syllabus" },
-  { id: "formula", label: "Formula Sheet" },
-  { id: "data", label: "Data" },
+const NAV: { id: ViewName; label: string; icon: LucideIcon }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "test", label: "New CBT", icon: FilePlus2 },
+  { id: "pdf", label: "PDF Test", icon: FileText },
+  { id: "papers", label: "Papers", icon: FolderOpen },
+  { id: "external", label: "Log External", icon: ClipboardList },
+  { id: "bank", label: "Question Bank", icon: Library },
+  { id: "performance", label: "Performance", icon: ChartLine },
+  { id: "syllabus", label: "Syllabus", icon: ListTree },
+  { id: "formula", label: "Formula Sheet", icon: Sigma },
+  { id: "data", label: "Data", icon: Database },
+];
+
+// nav groups → hairline separators between functional clusters (Kombai rule:
+// one style family; Linear rule: structure felt, not seen)
+const NAV_GROUPS: ViewName[][] = [
+  ["dashboard"],
+  ["test", "pdf", "papers", "external"],
+  ["bank", "performance", "syllabus", "formula"],
+  ["data"],
 ];
 
 // every legal view name — used to validate a restored deep link
@@ -246,18 +268,19 @@ export function AppRoot() {
   const nav: NavController = { go, openResults, startSession, toTestCreate, importPaper };
 
   return (
-    <div className="min-h-screen flex flex-col bg-stone-50">
+    <div className="min-h-screen flex flex-col bg-background">
       <PwaRegister />
       <Toaster position="bottom-right" />
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-30">
+      {/* chrome recedes: translucent header, content area carries the contrast */}
+      <header className="bg-white/90 backdrop-blur-md border-b border-border sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-emerald-700 text-white grid place-items-center font-black text-sm shrink-0">
+            <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center font-black text-sm shrink-0">
               JEE
             </div>
             <div className="min-w-0">
-              <div className="font-semibold text-stone-900 leading-tight truncate">JEE Study App</div>
-              <div className="text-[11px] text-stone-400 leading-tight">
+              <div className="font-semibold text-foreground leading-tight truncate">JEE Study App</div>
+              <div className="text-[11px] text-muted-foreground leading-tight truncate hidden sm:block">
                 local-first · all data stays in this browser
               </div>
             </div>
@@ -266,29 +289,45 @@ export function AppRoot() {
             {/* E1: exam countdown chip — wraps below the north-star on mobile */}
             <CountdownChip />
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wide text-stone-400 font-medium">
+              <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
                 Correct under time
               </div>
-              <div className="text-xl font-black text-emerald-700 tabular-nums leading-none">
+              <div className="font-mono tabular-nums text-xl font-bold text-primary tracking-tight leading-none">
                 {star}
               </div>
             </div>
           </div>
         </div>
-        <nav className="max-w-7xl mx-auto px-4 pb-2 flex gap-1.5 overflow-x-auto" aria-label="Main">
-          {NAV.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => go(n.id)}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors",
-                view === n.id
-                  ? "bg-emerald-700 text-white font-medium"
-                  : "bg-stone-100 text-stone-600 hover:bg-stone-200"
-              )}
-            >
-              {n.label}
-            </button>
+        <nav className="max-w-7xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto" aria-label="Main">
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={gi} className="flex items-center gap-1">
+              {gi > 0 ? <span className="mx-1.5 h-5 w-px bg-border shrink-0" aria-hidden="true" /> : null}
+              {group.map((id) => {
+                const n = NAV.find((x) => x.id === id)!;
+                const Icon = n.icon;
+                const active = view === n.id;
+                return (
+                  <button
+                    key={n.id}
+                    onClick={() => go(n.id)}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "press px-2.5 py-1.5 rounded-full text-[13px] whitespace-nowrap flex items-center gap-1.5",
+                      active
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"
+                    )}
+                  >
+                    <Icon
+                      className={cn("w-3.5 h-3.5 shrink-0", active ? "opacity-100" : "opacity-70")}
+                      strokeWidth={active ? 2 : 1.5}
+                      aria-hidden="true"
+                    />
+                    {n.label}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
       </header>
@@ -351,8 +390,8 @@ export function AppRoot() {
         {view === "data" ? <DataView /> : null}
       </main>
 
-      <footer className="mt-auto bg-white border-t border-stone-200">
-        <div className="max-w-7xl mx-auto px-4 py-3 text-xs text-stone-400 flex justify-between gap-2 flex-wrap">
+      <footer className="mt-auto bg-card border-t border-border">
+        <div className="max-w-7xl mx-auto px-4 py-3 text-[11px] text-muted-foreground/80 flex justify-between gap-2 flex-wrap">
           <span>
             The app follows the plan — never the reverse. Building stopped at MVP; studying wins.
           </span>

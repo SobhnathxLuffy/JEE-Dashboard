@@ -22,7 +22,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+import { AnswerBits, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
 import { useLive, put, get, getAll } from "@/lib/idb";
 import { marksFor } from "@/lib/scoring";
 import { fileToDataUrl } from "@/lib/image";
@@ -634,16 +634,18 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                   key={r.id}
                   id={`resp-${r.id}`}
                   className={cn(
-                    "border rounded-lg p-3 transition-shadow",
+                    // left stripe = outcome at a glance (scannability rule:
+                    // alignment + color carry the state, not badges alone)
+                    "rounded-lg p-3 transition-shadow border border-l-4",
                     highlightId === r.id
-                      ? "border-amber-400 bg-amber-50 ring-2 ring-amber-300"
+                      ? "border-amber-400 border-l-amber-500 bg-amber-50 ring-2 ring-amber-300"
                       : !r.attempted
-                        ? "border-stone-100 bg-stone-50"
+                        ? "border-border border-l-stone-300 bg-stone-50/60"
                         : r.correct === true
-                          ? "border-emerald-100 bg-emerald-50/50"
+                          ? "border-emerald-100 border-l-emerald-600 bg-emerald-50/50"
                           : r.correct === false
-                            ? "border-red-100 bg-red-50/40"
-                            : "border-amber-100 bg-amber-50/40" // pending self-mark
+                            ? "border-red-100 border-l-red-500 bg-red-50/40"
+                            : "border-amber-100 border-l-amber-500 bg-amber-50/40" // pending self-mark
                   )}
                 >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -685,6 +687,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                           isPdf={r.question_id.startsWith("pdf:")}
                           tolerance={test.pdf_meta?.tolerance ?? 0}
                           attempted={r.attempted}
+                          status={r.correct === true ? "right" : r.correct === false ? "wrong" : null}
                         />
                       </div>
 

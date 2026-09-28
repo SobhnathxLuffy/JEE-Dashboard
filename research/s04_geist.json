@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://www.ui-skills.com",
+    "name": "taste-skill-v1 - Leonxlnx",
+    "snippet": "A. Core Design Philosophy · Aesthetic: High-end, minimal, and functional. · Palette: Background in #f9fafb . · Surfaces: Use rounded-[2.5rem] for all major ... Read more",
+    "host_name": "www.ui-skills.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://vontigo.ai",
+    "name": "Vercel",
+    "snippet": "Principles · Compression as identity: Geist Sans at display sizes uses - 2 .4px to -2.88px letter-spacing — the most aggressive negative tracking of any major ...",
+    "host_name": "vontigo.ai",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://lobehub.com",
+    "name": "design-md-x.ai | Skills Marketplace",
+    "snippet": "5 days ago — Layout Principles . Spacing System. Base unit: 8px; Scale: 4px, 8px, 24px, 48px; The scale is deliberately sparse -- xAI avoids granular spacing ... Read more",
+    "host_name": "lobehub.com",
+    "rank": 2,
+    "date": "Sep 23, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com",
+    "name": "clawdi/DESIGN.md at main",
+    "snippet": "Principles · One accent. Orange ( --primary ) is the only saturated brand color. · Hierarchy from type and hairlines, not boxes. Prefer a heading + 1px border- ... Read more",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.jsdelivr.com",
+    "name": "awesome-design-md",
+    "snippet": "Layout Principles , Spacing scale, grid, whitespace philosophy. 6, Depth & Elevation, Shadow system, surface hierarchy. 7, Do's and Don'ts, Design guardrails and ... Read more",
+    "host_name": "www.jsdelivr.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  }
+]

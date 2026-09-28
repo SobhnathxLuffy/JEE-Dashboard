@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+import { AnswerBits, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
 import { useLive } from "@/lib/idb";
 import { tagOf } from "@/lib/analytics";
 import {
@@ -39,22 +39,6 @@ import {
   type Subject,
   type TestRecord,
 } from "@/lib/types";
-
-const CH = {
-  green: "#047857",
-  amber: "#d97706",
-  red: "#dc2626",
-  stone: "#78716c",
-};
-
-const chartTooltip = {
-  contentStyle: {
-    fontSize: 12,
-    borderRadius: 8,
-    border: "1px solid #e7e5e4",
-    background: "#fff",
-  },
-};
 
 const TAG_CLS: Record<ErrorTag, string> = {
   C: "bg-red-100 text-red-700 border-red-200",
@@ -311,14 +295,14 @@ export function PerformanceView({ nav }: { nav: NavController }) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={48} />
-                  <YAxis yAxisId="l" tick={{ fontSize: 11 }} allowDecimals={false} />
-                  <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <Tooltip {...chartTooltip} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="label" tick={TICK} interval={0} angle={-25} textAnchor="end" height={48} />
+                  <YAxis yAxisId="l" tick={TICK_MONO} allowDecimals={false} />
+                  <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={TICK_MONO} />
+                  <Tooltip {...TIP} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar yAxisId="l" dataKey="attempted" name="attempted" fill={CH.stone} radius={[3, 3, 0, 0]} />
-                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -339,14 +323,14 @@ export function PerformanceView({ nav }: { nav: NavController }) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={scoreSeries} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={48} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis dataKey="label" tick={TICK} interval={0} angle={-25} textAnchor="end" height={48} />
                   <YAxis
-                    tick={{ fontSize: 11 }}
+                    tick={TICK_MONO}
                     domain={subject === "all" ? [0, 100] : ["auto", "auto"]}
                   />
                   <Tooltip
-                    {...chartTooltip}
+                    {...TIP}
                     formatter={(value, name, item) => {
                       const p = item?.payload as { raw?: number; max?: number; subjectMarks?: number | null };
                       if (name === "% of max") return [`${p?.raw}/${p?.max} (${value}%)`, name];
@@ -355,9 +339,9 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                     }}
                   />
                   {subject === "all" ? (
-                    <Line dataKey="pct" name="% of max" stroke={CH.green} strokeWidth={2} dot={{ r: 3 }} />
+                    <Line dataKey="pct" name="% of max" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                   ) : (
-                    <Line dataKey="subjectMarks" name="subject marks" stroke={CH.green} strokeWidth={2} dot={{ r: 3 }} />
+                    <Line dataKey="subjectMarks" name="subject marks" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                   )}
                 </LineChart>
               </ResponsiveContainer>
@@ -377,11 +361,11 @@ export function PerformanceView({ nav }: { nav: NavController }) {
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chapterBars} margin={{ top: 8, right: 8, left: -18, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                    <XAxis dataKey="chapter" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <CartesianGrid {...GRID} />
+                    <XAxis dataKey="chapter" tick={TICK} interval={0} angle={-30} textAnchor="end" />
+                    <YAxis domain={[0, 100]} tick={TICK_MONO} />
                     <Tooltip
-                      {...chartTooltip}
+                      {...TIP}
                       formatter={(value, _name, item) => {
                         const p = item?.payload as { full?: string; attempted?: number };
                         return [`${value}% of ${p?.attempted} attempted`, p?.full ?? ""];
@@ -548,6 +532,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                           isPdf={r.question_id.startsWith("pdf:")}
                           tolerance={toleranceOf(r)}
                           attempted={r.attempted}
+                          status="wrong"
                         />
                       </div>
                     </div>

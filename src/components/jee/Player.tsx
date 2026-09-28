@@ -313,6 +313,21 @@ export function PlayerView({
     if (submittingRef.current) return;
     submittingRef.current = true;
     const s = sessionRef.current;
+    // completion micro-interaction: one tasteful burst, brand palette
+    // (research: canvas-confetti is the shipped ed-tech completion pattern)
+    const celebrate = () => {
+      import("canvas-confetti")
+        .then(({ default: confetti }) => {
+          confetti({
+            particleCount: 90,
+            spread: 70,
+            startVelocity: 38,
+            origin: { y: 0.7 },
+            colors: ["#047857", "#0d9488", "#d97706", "#78716c"],
+          });
+        })
+        .catch(() => {});
+    };
     // finalize last question's time
     const elapsed = (Date.now() - s.q_entered_at) / 1000;
     const cur = s.question_ids[s.current] ?? String(s.current + 1);
@@ -382,6 +397,7 @@ export function PlayerView({
       };
       await (await import("@/lib/idb")).bulkPut("responses", responses);
       await (await import("@/lib/idb")).put("tests", record);
+      celebrate();
       onFinish(s.test_id);
       return;
     }
@@ -976,7 +992,7 @@ export function PlayerView({
                   key={s.slot}
                   onClick={() => goTo(i)}
                   className={cn(
-                    "h-10 w-10 sm:h-8 sm:w-8 rounded-md text-xs font-semibold border-2 transition-colors relative",
+                    "h-10 w-10 sm:h-8 sm:w-8 rounded-md text-xs font-semibold border-2 transition-colors relative font-mono tabular-nums",
                     answered && marked
                       ? "bg-emerald-600 text-white border-purple-600"
                       : answered
@@ -984,7 +1000,7 @@ export function PlayerView({
                         : marked
                           ? "bg-white text-purple-700 border-purple-600"
                           : "bg-white text-stone-600 border-stone-300",
-                    isCurrent && "ring-4 ring-yellow-300 ring-offset-0"
+                    isCurrent && "ring-2 ring-amber-400 ring-offset-1"
                   )}
                   aria-label={`Question ${s.no}${answered ? ", answered" : ""}${marked ? ", marked" : ""}`}
                 >
@@ -1012,7 +1028,7 @@ export function PlayerView({
               answered
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 ring-4 ring-yellow-300 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 ring-2 ring-amber-400 ring-offset-1 inline-block" />{" "}
               Current
             </div>
           </div>

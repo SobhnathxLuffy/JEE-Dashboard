@@ -1,0 +1,56 @@
+[
+  {
+    "url": "https://www.pencilandpaper.io",
+    "name": "Empty State UX Examples & Best Practices",
+    "snippet": "May 6, 2024 — Improving empty state UX patterns with examples from onboarding, using dummy data, inbox zero and no search results.",
+    "host_name": "www.pencilandpaper.io",
+    "rank": 0,
+    "date": "May 6, 2024",
+    "favicon": ""
+  },
+  {
+    "url": "https://kompassify.com",
+    "name": "Empty States: The Most Underrated Screen in Your Product",
+    "snippet": "Design every empty state deliberately ; audit them with a fresh account · Give each screen one clear primary action · Explain what the space is for and what will ... Read more",
+    "host_name": "kompassify.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.eleken.co",
+    "name": "Empty state UX examples and design rules that actually work",
+    "snippet": "Feb 24, 2026 — When a screen has no data, it still has a job to do. We cover empty state design rules , real-world SaaS examples, common mistakes to avoid, and ... Read more",
+    "host_name": "www.eleken.co",
+    "rank": 2,
+    "date": "Feb 24, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.nngroup.com",
+    "name": "Designing Empty States in Complex Applications",
+    "snippet": "Sep 19, 2021 — Do not default to totally empty states . · When content does not yet exist for a screen, page, or panel, use the empty state to provide help cues. Read more",
+    "host_name": "www.nngroup.com",
+    "rank": 3,
+    "date": "Sep 19, 2021",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.vendasta.com",
+    "name": "9 Empty state best practices for UX design in 2023",
+    "snippet": "Mar 20, 2023 — Early on, empty states should focus on onboarding and helping users create their first item (project, list, campaign, etc.). Later, they can ... Read more",
+    "host_name": "www.vendasta.com",
+    "rank": 4,
+    "date": "Mar 20, 2023",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.useronboard.com",
+    "name": "Empty States - Onboarding UX Patterns",
+    "snippet": "Empty states are what your product shows when its containers are empty . They're often under-designed and therefore under-leveraged.",
+    "host_name": "www.useronboard.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  }
+]

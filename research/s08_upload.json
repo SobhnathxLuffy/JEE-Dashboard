@@ -1,0 +1,38 @@
+[
+  {
+    "url": "https://progit2.s3.amazonaws.com",
+    "name": "Pro Git",
+    "snippet": "Oct 23, 2015 — If you are starting to work on a particular area, feel free to submit a PR that highlights your work in progress . If you are starting to work ...",
+    "host_name": "progit2.s3.amazonaws.com",
+    "rank": 0,
+    "date": "Oct 23, 2015",
+    "favicon": ""
+  },
+  {
+    "url": "https://taichunmin.gitlab.io",
+    "name": "Pro Git",
+    "snippet": "... file annotation is often your best tool. It shows you what commit was the last to modify each line of any file . So, if you see that a method in your code is ... Read more",
+    "host_name": "taichunmin.gitlab.io",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.scribd.com",
+    "name": "Zoberetimifid | PDF | Copyright",
+    "snippet": "The document provides a detailed guide on the Swift gloves in Old School RuneScape (OSRS), including their requirements, effects, and how to obtain them. Read more",
+    "host_name": "www.scribd.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://archive.org",
+    "name": "Full text of \"Acorn User Magazine\"",
+    "snippet": "simply drag your files into them . try to avoid using ASCII codes over 128, this means thing like curly quotes, curly apostrophes and the symbol for degrees.",
+    "host_name": "archive.org",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  }
+]

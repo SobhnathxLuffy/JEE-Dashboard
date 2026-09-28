@@ -71,6 +71,7 @@ export function PdfImportView({
   const [blob, setBlob] = useState<Blob | null>(initialPaper?.data ?? null);
   const [numPages, setNumPages] = useState(initialPaper?.num_pages ?? 0);
   const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const [mode, setMode] = useState<"single" | "full">("single");
   const [subject, setSubject] = useState<Subject>("Physics");
@@ -440,14 +441,33 @@ export function PdfImportView({
             />
             <button
               onClick={() => fileRef.current?.click()}
-              className="w-full border-2 border-dashed border-stone-300 rounded-xl px-6 py-10 text-center hover:border-emerald-500 hover:bg-emerald-50/40 transition-colors"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) void onFile(f);
+              }}
+              className={cn(
+                "w-full border-2 border-dashed rounded-xl px-6 py-10 text-center transition-all",
+                dragOver
+                  ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/30"
+                  : "border-stone-300 hover:border-emerald-500 hover:bg-emerald-50/40"
+              )}
+              aria-label="Upload PDF: drag a file here or click to browse"
             >
               <div className="text-sm font-medium text-stone-700">
                 {loading
                   ? "Reading PDF…"
                   : fileName
                     ? `✓ ${fileName}`
-                    : "Click to choose a PDF file"}
+                    : dragOver
+                      ? "Drop to upload"
+                      : "Drag the PDF here, or click to browse"}
               </div>
               {numPages > 0 ? (
                 <div className="text-xs text-stone-400 mt-1">

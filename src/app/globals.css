@@ -44,31 +44,35 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* "Quiet Cockpit" tokens — warm stone neutrals (Linear), ONE emerald accent
+     (taste-skill "Lila Ban": max 1 accent, saturation ≤ 80%), Geist type.
+     Chart ramp follows subject identity: emerald=P&C good, amber=Physics,
+     graphite=Maths, sky=extra series, violet=marked/review. */
+  --radius: 0.5rem;
+  --background: oklch(0.984 0.003 86);
+  --foreground: oklch(0.216 0.006 56);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.216 0.006 56);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.216 0.006 56);
+  --primary: oklch(0.508 0.118 165.6);
+  --primary-foreground: oklch(0.984 0.003 86);
+  --secondary: oklch(0.97 0.003 81);
+  --secondary-foreground: oklch(0.274 0.008 55);
+  --muted: oklch(0.97 0.003 81);
+  --muted-foreground: oklch(0.553 0.012 58);
+  --accent: oklch(0.97 0.003 81);
+  --accent-foreground: oklch(0.274 0.008 55);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
+  --border: oklch(0.923 0.004 79);
+  --input: oklch(0.923 0.004 79);
+  --ring: oklch(0.696 0.17 162.48);
+  --chart-1: oklch(0.508 0.118 165.6);
+  --chart-2: oklch(0.666 0.15 60);
+  --chart-3: oklch(0.392 0.009 56);
+  --chart-4: oklch(0.588 0.123 231);
+  --chart-5: oklch(0.541 0.247 293);
+  --sidebar: oklch(0.985 0.002 86);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -78,21 +82,23 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Warm-neutral dark (Linear: "too cool reads muddy") — future-proofing; the
+   app currently ships light-only, but tokens stay correct if .dark is set. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.156 0.004 60);
+  --foreground: oklch(0.968 0.003 86);
+  --card: oklch(0.213 0.005 60);
+  --card-foreground: oklch(0.968 0.003 86);
+  --popover: oklch(0.213 0.005 60);
+  --popover-foreground: oklch(0.968 0.003 86);
+  --primary: oklch(0.696 0.17 162.48);
+  --primary-foreground: oklch(0.156 0.004 60);
+  --secondary: oklch(0.268 0.006 60);
+  --secondary-foreground: oklch(0.968 0.003 86);
+  --muted: oklch(0.268 0.006 60);
+  --muted-foreground: oklch(0.708 0.011 68);
+  --accent: oklch(0.268 0.006 60);
+  --accent-foreground: oklch(0.968 0.003 86);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
@@ -118,5 +124,41 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* emerald-tinted selection — brand reach without shouting */
+  ::selection {
+    background: oklch(0.696 0.17 162.48 / 0.2);
+  }
+  /* thin warm scrollbars — dense panes (palette, review lists, tables) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.868 0.005 80) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: oklch(0.868 0.005 80);
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.777 0.008 70);
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* taste-skill tactile states: transform-only, 150ms, signature easing */
+  .press {
+    transition:
+      transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .press:active {
+    transform: scale(0.98);
   }
 }

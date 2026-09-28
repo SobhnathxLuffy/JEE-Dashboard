@@ -1,0 +1,47 @@
+[
+  {
+    "url": "https://ahel.ai",
+    "name": "shadcn/ui by toy-crane: Skill - ahel",
+    "snippet": "4 days ago — A framework for building ui , components and design systems. Components are added as source code to the user's project via the CLI.",
+    "host_name": "ahel.ai",
+    "rank": 0,
+    "date": "Sep 24, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://skills-hub.ai",
+    "name": "design-taste-frontend-v1, AI Coding Skill for Claude Code",
+    "snippet": "Use absolute, reliable placeholders like https://picsum.photos/seed/{random_string}/800/600 or SVG UI Avatars. shadcn/ui Customization: You may use shadcn/ui , ...",
+    "host_name": "skills-hub.ai",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com",
+    "name": "antosubash/simple_module_python",
+    "snippet": "Sep 1, 2026 — A modular-monolith framework for Python. UI : shadcn / ui primitives + emerald /teal design tokens, The frontend uses an emerald + teal design ...",
+    "host_name": "github.com",
+    "rank": 2,
+    "date": "Sep 1, 2026",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.ux-components.com",
+    "name": "Design Systems Lucid",
+    "snippet": "A curated directory of widely used design systems — an open-source component library. /lucid React components for data-driven advertising and media platform ...",
+    "host_name": "www.ux-components.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.creative-tim.com",
+    "name": "Voice-to-text transcription with live recording visualization",
+    "snippet": "Apr 3, 2026 — The transcript streams in word by word with a blinking cursor into a bordered text surface (not a textarea), followed by Copy ( emerald check ... Read more",
+    "host_name": "www.creative-tim.com",
+    "rank": 4,
+    "date": "Apr 3, 2026",
+    "favicon": ""
+  }
+]

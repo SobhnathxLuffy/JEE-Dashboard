@@ -484,7 +484,7 @@ export function PdfImportView({
               Already uploaded this paper?{" "}
               <button
                 type="button"
-                className="underline text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:text-emerald-300"
+                className="underline text-primary hover:text-primary/80"
                 onClick={() => nav.go("papers")}
               >
                 Pick it from the Papers library
@@ -636,7 +636,7 @@ export function PdfImportView({
                       className={cn(
                         "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
                         active
-                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
+                          ? "bg-primary text-primary-foreground border-primary"
                           : hot
                             ? "border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100"
                             : "border-border text-muted-foreground hover:bg-accent"
@@ -836,7 +836,7 @@ export function PdfImportView({
               )}
             </ul>
             <Button
-              className="w-full bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+              className="w-full bg-primary hover:bg-primary/90"
               disabled={!blob || (!keyLater && gridKey.length === 0) || loading}
               onClick={() => void startTest()}
             >

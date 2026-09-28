@@ -282,18 +282,20 @@ export function AppRoot() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="min-h-screen flex flex-col bg-background">
+      <div className="min-h-screen flex flex-col relative">
+        {/* NOVA ambience — aurora light field + blueprint grid behind everything */}
+        <AuroraBackground />
         <PwaRegister />
         <Toaster position="bottom-right" />
-        {/* chrome recedes: translucent header, content area carries the contrast */}
-        <header className="bg-background/85 backdrop-blur-md border-b border-border sticky top-0 z-30">
+        {/* floating glass chrome — the deck reads as one translucent instrument */}
+        <header className="bg-background/55 dark:bg-background/45 backdrop-blur-2xl border-b border-border/70 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center font-black text-sm shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 via-violet-600 to-cyan-500 text-white grid place-items-center font-display font-bold text-[13px] tracking-tight shrink-0 shadow-[0_0_20px_-2px_var(--glow-primary)]">
                 JEE
               </div>
               <div className="min-w-0">
-                <div className="font-semibold text-foreground leading-tight truncate">JEE Study App</div>
+                <div className="font-display font-semibold text-foreground leading-tight truncate tracking-tight">JEE Study App</div>
                 <div className="text-[11px] text-muted-foreground leading-tight truncate hidden sm:block">
                   local-first · all data stays in this browser
                 </div>
@@ -304,10 +306,10 @@ export function AppRoot() {
               <CountdownChip />
               <ThemeToggle />
               <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
                   Correct under time
                 </div>
-                <div className="font-mono tabular-nums text-xl font-bold text-primary tracking-tight leading-none">
+                <div className="font-mono tabular-nums text-xl font-bold tracking-tight leading-none text-gradient glow-text">
                   {star}
                 </div>
               </div>
@@ -330,20 +332,21 @@ export function AppRoot() {
                       "press relative px-2.5 py-1.5 rounded-full text-[13px] whitespace-nowrap flex items-center gap-1.5",
                       active
                         ? "text-primary-foreground font-medium"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
                     )}
                   >
-                    {/* sliding pill — layoutId glides it between nav items */}
+                    {/* sliding pill — layoutId glides it between nav items,
+                        lit from within so the active section feels powered */}
                     {active ? (
                       <motion.span
                         layoutId="nav-pill"
-                        className="absolute inset-0 rounded-full bg-primary"
+                        className="absolute inset-0 rounded-full bg-primary shadow-[0_0_18px_-2px_var(--glow-primary)]"
                         transition={{ type: "spring", stiffness: 550, damping: 42 }}
                         aria-hidden="true"
                       />
                     ) : null}
                     <Icon
-                      className={cn("relative z-10 w-3.5 h-3.5 shrink-0", active ? "opacity-100" : "opacity-70")}
+                      className={cn("relative z-10 w-3.5 h-3.5 shrink-0 transition-opacity", active ? "opacity-100" : "opacity-70")}
                       strokeWidth={active ? 2 : 1.5}
                       aria-hidden="true"
                     />
@@ -357,16 +360,16 @@ export function AppRoot() {
       </header>
 
       {resumable && !session ? (
-        <div className="bg-amber-50 border-b border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25">
+        <div className="bg-amber-500/10 border-b border-amber-500/25 backdrop-blur-xl">
           <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm text-amber-800 dark:text-amber-300">
+            <div className="text-sm text-amber-700 dark:text-amber-300">
               <Badge className="bg-amber-500 hover:bg-amber-500 text-white border-0 mr-2">
                 paused test
               </Badge>
               “{resumable.name}” is still open — the clock never stopped.
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={resume} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
+              <Button size="sm" onClick={resume}>
                 Resume
               </Button>
               {/* C5: discarding a paused session asks for confirmation */}
@@ -379,14 +382,14 @@ export function AppRoot() {
       ) : null}
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6">
-        {/* page transitions: old view sinks away, new one rises in */}
+        {/* page transitions: the old view blurs away, the new one materialises */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={view}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: EASE }}
+            initial={{ opacity: 0, y: 14, filter: "blur(8px)", scale: 0.995 }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)", scale: 1 }}
+            exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
+            transition={{ duration: 0.26, ease: EASE }}
           >
             {view === "dashboard" ? <DashboardView nav={nav} key={`d-${dataVersion}`} /> : null}
             {view === "bank" ? <QuestionBankView /> : null}
@@ -425,8 +428,8 @@ export function AppRoot() {
         </AnimatePresence>
       </main>
 
-      <footer className="mt-auto bg-card border-t border-border">
-        <div className="max-w-7xl mx-auto px-4 py-3 text-[11px] text-muted-foreground/80 flex justify-between gap-2 flex-wrap">
+      <footer className="mt-auto border-t border-border/60">
+        <div className="max-w-7xl mx-auto px-4 py-3 text-[11px] text-muted-foreground/70 flex justify-between gap-2 flex-wrap">
           <span>
             The app follows the plan — never the reverse. Building stopped at MVP; studying wins.
           </span>
@@ -597,7 +600,7 @@ function CountdownChip() {
           />
           <Button
             size="sm"
-            className="w-full bg-emerald-700 hover:bg-emerald-800"
+            className="w-full bg-primary hover:bg-primary/90"
             onClick={() => void saveDate()}
             disabled={!draft}
           >
@@ -613,3 +616,17 @@ function CountdownChip() {
 }
 
 export type { TestRecord };
+
+// ─── NOVA ambience — aurora light field + blueprint grid, fixed behind all ──
+function AuroraBackground() {
+  return (
+    <div aria-hidden="true" className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+      {/* blueprint dot grid, fading toward the edges */}
+      <div className="absolute inset-0 bg-dots fade-edges" />
+      {/* three drifting light masses — violet, cyan, magenta */}
+      <div className="aurora-blob aurora-blob-1 w-[42rem] h-[42rem] -top-40 -left-32" />
+      <div className="aurora-blob aurora-blob-2 w-[36rem] h-[36rem] top-1/3 -right-40" />
+      <div className="aurora-blob aurora-blob-3 w-[30rem] h-[30rem] -bottom-48 left-1/3" />
+    </div>
+  );
+}

@@ -206,7 +206,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
           <Button
             size="sm"
             onClick={() => nav.go("test")}
-            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+            className="bg-primary hover:bg-primary/90"
           >
             + New CBT
           </Button>
@@ -215,7 +215,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
 
       {/* F3: first-run onboarding — 3 terse steps, dismissible */}
       {onboarded === false ? (
-        <div className="border border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10 rounded-lg px-4 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="border border-violet-200 bg-violet-50/70 dark:border-violet-500/30 dark:bg-violet-500/10 rounded-lg px-4 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-foreground mb-1">First 3 moves</div>
             <ol className="list-decimal ml-4 text-sm text-muted-foreground space-y-0.5">
@@ -228,7 +228,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <Button
               size="sm"
               variant="outline"
-              className="h-8 border-emerald-300 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+              className="h-8 border-violet-300 text-violet-700 hover:bg-violet-100 dark:border-violet-500/40 dark:text-violet-300 dark:hover:bg-violet-500/10"
               onClick={() => {
                 void dismissOnboarding();
                 nav.go("data");
@@ -238,7 +238,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
             </Button>
             <Button
               size="sm"
-              className="h-8 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+              className="h-8 bg-primary hover:bg-primary/90"
               onClick={() => void dismissOnboarding()}
             >
               Got it
@@ -462,12 +462,15 @@ export function DashboardView({ nav }: { nav: NavController }) {
           {timeline.length === 0 ? (
             <EmptyNote>Log a test (CBT, PDF or external) and the line appears here.</EmptyNote>
           ) : (
-            <div className="h-64">
+            <div
+              className="h-64 chart-glow"
+              style={{ "--glow-c": CH.green } as React.CSSProperties}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={timelineData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
                   <defs>
                     <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CH.green} stopOpacity={0.22} />
+                      <stop offset="0%" stopColor={CH.green} stopOpacity={0.34} />
                       <stop offset="100%" stopColor={CH.green} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
@@ -482,10 +485,10 @@ export function DashboardView({ nav }: { nav: NavController }) {
                     type="monotone"
                     dataKey={timelineMode === "pct" ? "pct" : "score"}
                     stroke={CH.green}
-                    strokeWidth={2}
+                    strokeWidth={2.5}
                     fill={`url(#${gradientId})`}
                     dot={false}
-                    activeDot={{ r: 4, fill: CH.green, stroke: "var(--background)", strokeWidth: 2 }}
+                    activeDot={{ r: 5, fill: CH.green, stroke: "var(--background)", strokeWidth: 2 }}
                     name={timelineMode === "pct" ? "% of max" : "score"}
                     isAnimationActive
                     animationDuration={700}
@@ -513,7 +516,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <YAxis domain={[0, 100]} tick={{ ...TICK_MONO }} />
                   <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
-                  <Bar maxBarSize={48} dataKey="accuracy" name="accuracy %" radius={[4, 4, 0, 0]}>
+                  <Bar maxBarSize={48} dataKey="accuracy" name="accuracy %" radius={[6, 6, 0, 0]}>
                     {subjAcc.map((s) => (
                       <Cell
                         key={s.subject}
@@ -545,7 +548,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <XAxis dataKey="tag" tick={TICK} interval={0} />
                   <YAxis allowDecimals={false} tick={{ ...TICK_MONO }} />
                   <Tooltip content={<TagPctTooltip />} cursor={{ fill: "var(--chart-grid)" }} />
-                  <Bar maxBarSize={48} dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[4, 4, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -571,8 +574,8 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <YAxis tick={{ ...TICK_MONO }} />
                   <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar maxBarSize={48} dataKey="actual" name="actual" fill={CH.green} radius={[3, 3, 0, 0]} />
-                  <Bar maxBarSize={48} dataKey="ifSkipped" name="if guesses skipped" fill={CH.stone} radius={[3, 3, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="actual" name="actual" fill={CH.green} radius={[6, 6, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="ifSkipped" name="if guesses skipped" fill={CH.stone} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -594,7 +597,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
                   <YAxis tick={{ ...TICK_MONO }} />
                   <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
-                  <Bar maxBarSize={48} dataKey="minutes" name="minutes" fill={CH.amber} radius={[4, 4, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="minutes" name="minutes" fill={CH.amber} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -737,6 +740,8 @@ function TodayCard({
     <SectionCard
       title="Today"
       subtitle={date}
+      /* the ONE hero card on the dashboard — animated gradient border + glow */
+      className="border-nova shadow-[0_8px_44px_-12px_var(--glow-primary)]"
       action={
         <div className="flex items-center gap-1.5">
           {/* E2: streak chip — plain text, subtle */}
@@ -803,7 +808,7 @@ function TodayCard({
               onBlur={() => void saveChapters()}
               autoFocus
             />
-            <Button size="sm" onClick={() => void saveChapters()} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
+            <Button size="sm" onClick={() => void saveChapters()} className="bg-primary hover:bg-primary/90">
               Save
             </Button>
           </div>

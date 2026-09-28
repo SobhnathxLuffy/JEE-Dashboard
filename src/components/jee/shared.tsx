@@ -1,11 +1,11 @@
 "use client";
 
 // ─── Shared UI atoms for the JEE app views ──────────────────────────────────
-// "Quiet Cockpit" system: warm stone neutrals, ONE emerald accent, hairline
-// structure (1px borders, no loud shadows), mono-tabular numerals everywhere
-// (Geist rule: numbers are data), type hierarchy via weight+color not size.
-// v2: fully theme-aware — chart colors + tooltips ride CSS vars, so dark mode
-// needs zero per-chart work. Motion atoms live in ./motion.tsx.
+// "NOVA" system: deep-space glass surfaces floating on aurora light, electric
+// violet→cyan brand energy, mono-tabular numerals with glow (numbers are the
+// heroes), type hierarchy via display face + weight. Fully theme-aware —
+// chart colors + tooltips ride CSS vars, so both themes need zero per-chart
+// work. Motion atoms live in ./motion.tsx.
 import { useId } from "react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ChapterStatus, Subject } from "@/lib/types";
 import type { LucideIcon } from "lucide-react";
-import { HoverLift } from "./motion";
+import { HoverLift, Spotlight } from "./motion";
 
 // ─── Shared chart vocabulary (Performance + Dashboard use the same voice) ───
 // Values are CSS vars defined per-theme in globals.css — the SAME component
@@ -70,7 +70,7 @@ export function ChartTip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2 shadow-[0_8px_24px_-12px_rgba(28,25,23,0.25)] text-xs max-w-64">
+    <div className="rounded-xl border border-border bg-popover text-popover-foreground px-3 py-2 backdrop-blur-2xl shadow-[var(--tip-shadow)] text-xs max-w-64">
       {label !== undefined && label !== "" ? (
         <div className="font-medium text-foreground mb-1 leading-tight">
           {label}
@@ -166,11 +166,14 @@ export function PageTitle({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
       <div>
-        {/* hierarchy via weight+tracking, not size — Linear "don't compete for
-           attention you haven't earned" */}
-        <h1 className="text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+        {/* display voice + a subtle energy tick — the page header reads as
+           instrumentation, not a document heading */}
+        <h1 className="flex items-center gap-2.5 font-display text-xl font-semibold tracking-tight text-foreground">
+          <span aria-hidden="true" className="inline-block h-4 w-1 rounded-full bg-gradient-to-b from-violet-500 to-cyan-400 dark:from-violet-400 dark:to-cyan-300" />
+          {title}
+        </h1>
         {subtitle ? (
-          <p className="text-[13px] text-muted-foreground mt-0.5 max-w-2xl leading-relaxed">{subtitle}</p>
+          <p className="text-[13px] text-muted-foreground mt-1 max-w-2xl leading-relaxed">{subtitle}</p>
         ) : null}
       </div>
       {right ? <div className="flex items-center gap-2">{right}</div> : null}
@@ -196,26 +199,26 @@ export function StatCard({
 }) {
   const toneCls = {
     default: "text-foreground",
-    good: "text-emerald-700 dark:text-emerald-400",
-    warn: "text-amber-600 dark:text-amber-400",
-    bad: "text-red-600 dark:text-red-400",
-    accent: "text-emerald-700 dark:text-emerald-400",
+    good: "text-emerald-600 dark:text-emerald-300",
+    warn: "text-amber-600 dark:text-amber-300",
+    bad: "text-red-600 dark:text-red-300",
+    accent: "text-violet-600 dark:text-violet-300",
   }[tone];
   return (
-    <HoverLift className="h-full">
-      <Card className="border-border bg-card card-shadow h-full transition-colors">
+    <Spotlight className="shadow-[inset_0_1px_0_0_var(--glass-highlight)]">
+      <Card className="border-border bg-card/70 h-full transition-colors hairline-top">
         <CardContent className="p-4">
-          {/* Geist Label-12-CAPS: tertiary labels in busy views read as chrome */}
-          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground font-medium">{label}</div>
-          {/* every number is data → mono tabular (taste-skill cockpit rule) */}
-          <div className={cn("font-mono tabular-nums text-[22px] font-semibold tracking-tight mt-1", toneCls)}>
+          {/* CAPS micro-label reads as instrumentation chrome */}
+          <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/90 font-medium">{label}</div>
+          {/* every number is data → mono tabular, display-sized */}
+          <div className={cn("font-mono tabular-nums text-[26px] font-semibold tracking-tight mt-1.5", toneCls)}>
             {value}
           </div>
           {hint ? <div className="text-xs text-muted-foreground/80 mt-1">{hint}</div> : null}
           {spark && spark.length > 1 ? <Spark data={spark} color={sparkColor} /> : null}
         </CardContent>
       </Card>
-    </HoverLift>
+    </Spotlight>
   );
 }
 
@@ -263,10 +266,10 @@ export function StatusBadge({ status }: { status: ChapterStatus }) {
 export function SubjectDot({ subject }: { subject: Subject }) {
   const cls =
     subject === "Physics"
-      ? "bg-amber-500"
+      ? "bg-amber-500 shadow-[0_0_6px_var(--sem-amber)]"
       : subject === "Chemistry"
-        ? "bg-emerald-600 dark:bg-emerald-400"
-        : "bg-stone-800 dark:bg-stone-300";
+        ? "bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_6px_var(--sem-emerald)]"
+        : "bg-slate-600 dark:bg-slate-300 shadow-[0_0_6px_var(--sem-slate)]";
   return <span className={cn("inline-block w-2 h-2 rounded-full mr-1.5 align-middle", cls)} />;
 }
 
@@ -284,11 +287,11 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("border-border bg-card card-shadow", className)}>
+    <Card className={cn("border-border bg-card/70", className)}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-[13px] font-semibold text-foreground">{title}</CardTitle>
+            <CardTitle className="font-display text-[14px] font-semibold tracking-tight text-foreground">{title}</CardTitle>
             {subtitle ? <p className="text-xs text-muted-foreground/80 mt-0.5">{subtitle}</p> : null}
           </div>
           {action}
@@ -327,15 +330,17 @@ export function EmptyState({
   secondaryLabel?: string;
 }) {
   return (
-    <div className="border border-dashed border-border rounded-xl px-6 py-10 flex flex-col items-center text-center bg-card/50">
-      <div className="w-11 h-11 rounded-xl bg-muted text-muted-foreground/70 grid place-items-center mb-3">
+    <div className="border border-dashed border-border rounded-2xl px-6 py-12 flex flex-col items-center text-center bg-card/40 backdrop-blur-sm relative overflow-hidden">
+      {/* faint energy field behind the empty state */}
+      <div aria-hidden="true" className="absolute -top-16 left-1/2 -translate-x-1/2 w-64 h-32 rounded-full bg-violet-500/10 dark:bg-violet-500/15 blur-3xl pointer-events-none" />
+      <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/25 shadow-[0_0_24px_-4px_var(--glow-primary)] grid place-items-center mb-4">
         <Icon className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
       </div>
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      <p className="text-[13px] text-muted-foreground mt-1 max-w-sm leading-relaxed">{description}</p>
+      <div className="font-display text-sm font-semibold text-foreground">{title}</div>
+      <p className="text-[13px] text-muted-foreground mt-1.5 max-w-sm leading-relaxed">{description}</p>
       {primary && primaryLabel ? (
-        <div className="flex items-center gap-2 mt-4">
-          <Button size="sm" onClick={primary} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 press">
+        <div className="flex items-center gap-2 mt-5">
+          <Button size="sm" onClick={primary} className="press">
             {primaryLabel}
           </Button>
           {secondary && secondaryLabel ? (

@@ -52,7 +52,7 @@ function EmptyNoteFallback({ query, onClear }: { query: string; onClear: () => v
       No papers match “{query}”.{" "}
       <button
         onClick={onClear}
-        className="text-emerald-700 dark:text-emerald-400 font-medium underline underline-offset-2 hover:text-emerald-800 dark:text-emerald-300"
+        className="text-primary font-medium underline underline-offset-2 hover:text-primary/80"
       >
         Clear search
       </button>
@@ -204,7 +204,7 @@ export function PapersView({ nav }: { nav: NavController }) {
                     <Button
                       size="sm"
                       onClick={() => importPaper(p)}
-                      className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 press h-8"
+                      className="bg-primary hover:bg-primary/90 press h-8"
                     >
                       Import test
                     </Button>
@@ -278,7 +278,7 @@ export function PapersView({ nav }: { nav: NavController }) {
             </Button>
             <Button
               size="sm"
-              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+              className="bg-primary hover:bg-primary/90"
               onClick={() => void saveRename()}
               disabled={!renameDraft.trim()}
             >

@@ -435,8 +435,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
         }
       />
 
-      {/* score hero — ring draws in, number settles, subject split at a glance */}
-      <div className="rounded-xl border border-border bg-card card-shadow px-5 py-4 flex items-center gap-6 flex-wrap">
+      {/* score hero — animated gradient border, ring draws in with glow */}
+      <div className="rounded-2xl border-nova px-5 py-5 flex items-center gap-6 flex-wrap shadow-[0_12px_48px_-16px_var(--glow-primary)]">
         {test.score === null ? (
           <div className="flex items-center gap-3 text-sm text-amber-700 dark:text-amber-300 py-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
@@ -444,12 +444,12 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           </div>
         ) : (
           <>
-            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={92}>
+            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={110} strokeWidth={8}>
               <div className="text-center leading-none">
-                <div className="font-mono tabular-nums text-xl font-bold text-foreground">
+                <div className="font-mono tabular-nums text-2xl font-bold text-gradient glow-text">
                   <CountUp value={test.score} />
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground mt-0.5">/{test.max_score}</div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-1">/{test.max_score}</div>
               </div>
             </ScoreRing>
             <div className="flex flex-wrap items-center gap-x-7 gap-y-3 min-w-0">
@@ -550,7 +550,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           <Button
             onClick={startRetry}
             disabled={retryIds.length === 0}
-            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px] px-5 font-semibold"
+            className="bg-primary hover:bg-primary/90 min-h-[44px] px-5 font-semibold"
           >
             ↻ Retry wrong ({retryIds.length})
           </Button>
@@ -585,7 +585,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             className={cn(
               "min-h-[44px] px-5 font-semibold",
               test.pdf_meta.key_later || test.pdf_meta.key.length === 0
-                ? "bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+                ? "bg-primary hover:bg-primary/90"
                 : ""
             )}
             variant={
@@ -671,7 +671,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                   className={cn(
                     "press px-2.5 py-1 rounded-full text-xs transition-colors min-h-[28px]",
                     subjectFilter === s
-                      ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
+                      ? "bg-primary text-primary-foreground font-medium"
                       : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
@@ -810,7 +810,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                             className={cn(
                               "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
                               r.correct === true
-                                ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
+                                ? "bg-primary text-primary-foreground border-primary"
                                 : "bg-card border-border text-muted-foreground hover:border-emerald-500 dark:hover:border-emerald-400 hover:text-foreground"
                             )}
                           >
@@ -1037,7 +1037,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             </Button>
             <Button
               size="sm"
-              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+              className="bg-primary hover:bg-primary/90"
               disabled={lkBusy || lkGridKey.length === 0}
               onClick={() => void applyLkKey()}
             >

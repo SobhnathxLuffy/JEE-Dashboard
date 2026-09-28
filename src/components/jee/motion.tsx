@@ -1,21 +1,22 @@
 "use client";
 
-// ─── Motion system ("Quiet Cockpit" motion layer) ────────────────────────────
-// Rules (DESIGN.md): transform/opacity only, signature easing
-// cubic-bezier(0.16,1,0.3,1), short durations, reduced-motion respected
-// globally via <MotionConfig reducedMotion="user"> in App.tsx.
+// ─── Motion system ("NOVA" motion layer) ─────────────────────────────────────
+// Signature: ease-out-expo cubic-bezier(0.16,1,0.3,1), transform/opacity/filter
+// only, short durations, reduced-motion respected globally via
+// <MotionConfig reducedMotion="user"> in App.tsx. Depth comes from blur +
+// rise on entry; surfaces respond to the cursor (spotlight) before touch.
 import {
   motion,
   useSpring,
   useTransform,
   type Variants,
 } from "framer-motion";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 export const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-// ─── Page entrance: whole view fades in with a soft rise ─────────────────────
+// ─── Page entrance: blur + rise — the view materialises out of the ether ────
 export function PageIn({
   children,
   className,
@@ -26,9 +27,9 @@ export function PageIn({
   return (
     <motion.div
       className={className}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, ease: EASE }}
+      initial={{ opacity: 0, y: 14, filter: "blur(8px)", scale: 0.995 }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)", scale: 1 }}
+      transition={{ duration: 0.38, ease: EASE }}
     >
       {children}
     </motion.div>
@@ -38,11 +39,16 @@ export function PageIn({
 // ─── Staggered children: cards/lists enter in a quick cascade ────────────────
 const staggerParent: Variants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.045, delayChildren: 0.06 } },
+  show: { transition: { staggerChildren: 0.05, delayChildren: 0.05 } },
 };
 const staggerChild: Variants = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.38, ease: EASE } },
+  hidden: { opacity: 0, y: 10, filter: "blur(4px)" },
+  show: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.42, ease: EASE },
+  },
 };
 
 export function Stagger({
@@ -79,8 +85,6 @@ export function StaggerItem({
 }
 
 // ─── Count-up numerals — stats settle in instead of popping ──────────────────
-// Strings pass through untouched; numbers tween with a spring. Formatters keep
-// "67%" / "31/36" semantics intact while the number part animates.
 export function CountUp({
   value,
   className,
@@ -105,7 +109,7 @@ export function CountUp({
   );
 }
 
-// ─── Hover lift — cards respond to the cursor with a 2px float ───────────────
+// ─── Hover lift — cards respond to the cursor with a float + tilt shadow ────
 export function HoverLift({
   children,
   className,
@@ -116,15 +120,53 @@ export function HoverLift({
   return (
     <motion.div
       className={className}
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.18, ease: EASE }}
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.22, ease: EASE }}
     >
       {children}
     </motion.div>
   );
 }
 
-// ─── Radial score ring — animated stroke draw for hero results ───────────────
+// ─── Spotlight surface — cursor-tracked radial sheen + soft lift ─────────────
+// The Vercel/Linear signature: light follows the pointer across the glass.
+// Pure CSS vars (--mx/--my) — no re-render per mousemove.
+export function Spotlight({
+  children,
+  className,
+  lift = true,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  lift?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const onMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+    el.style.setProperty("--my", `${e.clientY - r.top}px`);
+  }, []);
+  const MotionTag = lift ? HoverLift : Passthrough;
+  return (
+    <MotionTag className="h-full">
+      <div
+        ref={ref}
+        onMouseMove={onMove}
+        className={cn("spotlight h-full rounded-xl", className)}
+      >
+        {children}
+      </div>
+    </MotionTag>
+  );
+}
+
+function Passthrough({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={className}>{children}</div>;
+}
+
+// ─── Radial score ring — animated stroke draw + light emission ───────────────
 export function ScoreRing({
   percent,
   size = 88,
@@ -145,6 +187,12 @@ export function ScoreRing({
   const clamped = Math.max(0, Math.min(100, percent));
   return (
     <div className="relative inline-grid place-items-center" style={{ width: size, height: size }}>
+      {/* halo behind the ring — the score feels luminous */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-1 rounded-full"
+        style={{ background: `radial-gradient(circle, ${color} 0%, transparent 68%)`, opacity: 0.22, filter: "blur(10px)" }}
+      />
       <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
         <circle
           cx={size / 2}
@@ -165,10 +213,29 @@ export function ScoreRing({
           strokeDasharray={c}
           initial={{ strokeDashoffset: c }}
           animate={{ strokeDashoffset: c - (clamped / 100) * c }}
-          transition={{ duration: 0.9, ease: EASE, delay: 0.15 }}
+          transition={{ duration: 1, ease: EASE, delay: 0.15 }}
+          style={{ filter: "drop-shadow(0 0 7px currentColor)" }}
         />
       </svg>
       <div className="absolute inset-0 grid place-items-center">{children}</div>
     </div>
+  );
+}
+
+// ─── Shimmer bar — a scanning light strip for timers/loading ─────────────────
+export function Shimmer({
+  className,
+  gradient = "linear-gradient(90deg, oklch(0.66 0.24 292), oklch(0.8 0.12 225))",
+  animated = true,
+}: {
+  className?: string;
+  gradient?: string;
+  animated?: boolean;
+}) {
+  return (
+    <div
+      className={cn("h-1 rounded-full overflow-hidden", animated && "shimmer", className)}
+      style={{ background: gradient }}
+    />
   );
 }

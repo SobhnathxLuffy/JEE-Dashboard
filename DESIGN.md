@@ -83,3 +83,49 @@ work stays inside one system instead of drifting back to template-land.
 18. **CBT honesty kept in dark.** NTA palette chips get dark equivalents
     (answered=emerald-500/950, marked=purple tint, unvisited=transparent with
     border); the timer bar drains with remaining time and recolors at stages.
+
+## v3 — the "NOVA" pass (futuristic premium, user-directed)
+
+User verdict on v2: clean but generic — "looks like every common web app". NOVA is the
+answer: keep the semantic discipline (green = correct, amber = pending, NTA palette
+semantics) and trade *quiet warmth* for *cinematic depth*. Sources of record: Linear's
+dark app, Vercel Geist, Raycast, Arc — the "premium dark instrument" family.
+
+19. **Deep space, not warm stone.** Backgrounds are near-black with a violet cast
+    (`oklch(0.132 0.018 288)`). Cards are translucent glass (`--card` at ~72% alpha +
+    `backdrop-blur`) floating on an **aurora light field**: three drifting blurred
+    blobs (violet/cyan/magenta, 9–20% alpha) + a blueprint dot grid with radial fade
+    (`AuroraBackground` in App.tsx). Dark is the default theme; light is "frost"
+    (lavender-white, same energy at daylight strength).
+20. **Brand = violet → cyan energy.** Primary is electric violet
+    (dark `oklch(0.64 0.24 292)`); the signature gradient runs violet → cyan
+    (logo tile, nav pill glow, page-title tick, score numerals `.text-gradient`,
+    timer filament). Green stays **strictly semantic** (correct/success/T1) — the
+    brand never borrows it.
+21. **Light emission, not just color.** Interactive chrome glows: primary buttons
+    carry `shadow-[0_0_0_1px_var(--glow-primary),0_4px_20px_-6px]` (button.tsx), the
+    active nav pill glows, ScoreRing renders a blurred halo + `drop-shadow` on the
+    stroke, chart curves get `filter: drop-shadow(...)` via `.chart-glow` with a
+    per-chart `--glow-c`. One hero card per view gets the animated conic border
+    `.border-nova` (Dashboard "Today", Results score hero).
+22. **Spotlight surfaces.** Cards track the cursor: `Spotlight` (motion.tsx) writes
+    `--mx/--my` on mousemove and a radial gradient sheen follows the pointer
+    (`.spotlight::after`, Vercel signature). Applied to every StatCard; zero
+    re-renders (pure CSS vars).
+23. **Cinematic motion, still transform/opacity/filter-only.** Page transitions
+    blur + rise (old view blurs away, new materialises, 260ms); `PageIn` and
+    Stagger items enter with a 4–8px blur that resolves to sharp; nav pill keeps
+    its spring glide. Shimmer: the timer filament scans (`Shimmer`/`.shimmer`).
+    All ambient animation (aurora drift, shimmer, conic shift) is killed under
+    `prefers-reduced-motion`.
+24. **Display voice.** Space Grotesk (`--font-display`, next/font) owns headlines,
+    the logo, section titles; Geist Sans stays body; Geist Mono stays numbers.
+    PageTitle carries a violet→cyan tick bar. Numerals grow (StatCard 26px) —
+    the data is the hero.
+25. **Proportional timer drama.** Timer stages scale with paper length
+    (red ≤ min(120s, 15%), amber ≤ max(red+60s, min(600s, 40%))) so a 5-min drill
+    doesn't start screaming amber. Normal stage shows the violet→cyan filament.
+26. **Confetti = brand sparks.** Submit celebration uses violet/cyan/magenta/white.
+    Density rules from v2 (caps micro-labels, mono numerals, honest chart notes)
+    all survive — NOVA changes the *material* (glass, light, depth), not the
+    *grammar*.

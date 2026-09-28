@@ -203,3 +203,24 @@ Stage Summary:
 - App now ships a documented design system (DESIGN.md) instead of ad-hoc styling; every screen shares one voice: warm neutrals, one emerald accent, mono numerals, hairline structure, designed empty states, NTA-honest CBT semantics.
 - Key files: DESIGN.md, globals.css, shared.tsx, App.tsx, Papers.tsx, Results.tsx, Player.tsx, Performance.tsx, Dashboard.tsx, PdfImport.tsx
 - No behavior changes outside Papers list rendering; all 40 features still E2E-verified.
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: Complete UI/UX overhaul ("modern elegant app") — dark mode, smooth transitions, modern meaningful graphs — then push to GitHub (SobhnathxLuffy/JEE-Dashboard).
+
+Work Log:
+- Dark mode foundation: globals.css completed warm-dark tokens + semantic chart vars (--sem-emerald/amber/red/stone/slate/violet, --chart-grid/tick, --tip-shadow) per theme; src/app/theme-provider.tsx (next-themes class strategy + MutationObserver theme-switch fade); layout.tsx wired ThemeProvider + media themeColor; manifest → dark stone colors
+- Motion layer: src/components/jee/motion.tsx (EASE cubic-bezier(0.16,1,0.3,1), PageIn, Stagger/StaggerItem, CountUp spring, HoverLift, ScoreRing animated stroke); App.tsx MotionConfig reducedMotion="user" + AnimatePresence mode="wait" page transitions + layoutId nav pill + ThemeToggle (CSS sun/moon crossfade, useSyncExternalStore mounted, Light/Dark/System dropdown)
+- Charts v2: shared.tsx CH/TIP/GRID/TICK → CSS vars (zero hardcoded hex), ChartTip glass tooltip (mono numerals, per-key formatters), ChartNote caption ("what this chart denotes"), Spark stat-card sparklines (useId gradients), StatCard → ReactNode value + HoverLift + card-shadow token
+- Dashboard: gradient AreaChart score timeline (raw/% toggle), staggered+CountUp stat cards with sparks, dark sweep everywhere (onboarding/backup banners, amber/red queue rows, recent-tests table, Today card)
+- Performance: filter card tokenized, staggered stats, AreaChart timeline with payload-aware ScoreTip, ChapterTip, ChartNotes on all 3 charts, dark table + wrong rows + TAG_CLS dark variants
+- Results: score hero (ScoreRing + CountUp + subject chips), staggered stat cards, dark review-row status stripes, filter pills → bg-foreground/background, late-key dialog + tag buttons + self-mark toggles dark-aware
+- Player: timer hairline progress bar (drains, recolors at amber/red stages), AnimatePresence question slide (0.18s), dark NTA palette chips (answered emerald-500/950, marked purple tint, unvisited transparent+border, ring-offset-background), PDF host bg-muted desk (canvas stays white), section tabs, abandon dialog
+- Sweep script scripts/dark_sweep.py: 144 lines tokenized across Papers/PdfImport/TestCreate/QuestionBank/Syllabus/FormulaSheet/ExternalLog/DataView (skip rules: dark:-present, object-contain thumbs, border-2 swatches); manual follow-ups for emerald chips/badges; corruption cleanup (/100/ artifacts, duplicated dark:hover tokens)
+- Browser E2E (agent-browser, both themes): light+dark dashboards, full test flow (3 Qs: 2 right 1 wrong → 7/12 exact), confetti + ScoreRing hero, review stripes + tinted AnswerBits, Performance drill-down + tables, Papers empty state, mobile 390px clean, theme flip seamless with scroll preserved; FIXED: Player submit AlertDialog missing AlertDialogContent (caught via E2E — client exception); fresh-session error count 0; lint 0 / tsc 0
+- Git: committed all 9 history commits, rebased onto remote init commit (README preserved), pushed main → SobhnathxLuffy/JEE-Dashboard (ce16d30). Token used one-off in push URL only, NOT persisted in .git/config; advised rotation.
+
+Stage Summary:
+- App is now a documented two-theme design system ("Quiet Cockpit v2", DESIGN.md rules 13-18): warm dark mode is first-class, motion everywhere but restrained, charts self-explanatory with themed glass tooltips and gradient fills.
+- All 40+ features re-verified E2E post-overhaul; zero console/page errors in fresh session; remote live at github.com/SobhnathxLuffy/JEE-Dashboard.

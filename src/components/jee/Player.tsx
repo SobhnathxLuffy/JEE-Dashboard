@@ -25,11 +25,15 @@ import { cn } from "@/lib/utils";
 import { saveSession, useLive } from "@/lib/idb";
 import { marksFor } from "@/lib/scoring";
 import {
+  checkPdfAnswer,
+  entryIsLetter,
+  keyDisplay,
+} from "@/lib/pdf-key";
+import {
   SUBJECT_SHORT,
   todayStr,
   uid,
   type ActiveSession,
-  type PdfKeyEntry,
   type PdfSection,
   type Question,
   type ResponseRecord,
@@ -94,39 +98,7 @@ function pageForQuestion(s: ActiveSession, paperNo: number): number {
   return meta.start_page + Math.floor((paperNo - (meta.first_q ?? 1)) / perPage);
 }
 
-// ── key-entry helpers (answers[] / bonus aware) ──────────────────────────────
-function entryAccepted(entry: PdfKeyEntry): string[] {
-  const acc = entry.answers && entry.answers.length > 0 ? entry.answers : [entry.answer];
-  return acc.filter((v) => typeof v === "string" && v.trim() !== "");
-}
-
-function entryIsLetter(entry: PdfKeyEntry): boolean {
-  const first = entryAccepted(entry)[0];
-  return first !== undefined && /^[A-Da-d]$/.test(first.trim());
-}
-
-/** A7 scoring: letters case-insensitive membership; numericals within ±tolerance (+1e-9). */
-function checkPdfAnswer(entry: PdfKeyEntry, selected: string, tolerance: number): boolean {
-  const accepted = entryAccepted(entry);
-  if (accepted.length === 0) return false;
-  if (entryIsLetter(entry)) {
-    const u = selected.trim().toUpperCase();
-    return accepted.some((v) => v.trim().toUpperCase() === u);
-  }
-  const u = Number(selected);
-  if (Number.isNaN(u)) return false;
-  return accepted.some((v) => {
-    const a = Number(v);
-    return !Number.isNaN(a) && Math.abs(u - a) <= tolerance + 1e-9;
-  });
-}
-
-/** Human-readable key for the response record ("B", "B/C", "42.5", "bonus"). */
-function keyDisplay(entry: PdfKeyEntry): string {
-  const acc = entryAccepted(entry);
-  if (acc.length > 0) return acc.join("/");
-  return entry.bonus ? "bonus" : "?";
-}
+// ── key-entry matching lives in @/lib/pdf-key (shared with PdfImport/Results) ─
 
 function pdfKeyIsLetter(s: ActiveSession, paperNo: number): boolean {
   const entry = s.pdf_meta?.key.find((k) => k.no === paperNo);

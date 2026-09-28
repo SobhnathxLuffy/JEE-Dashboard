@@ -96,6 +96,17 @@ export interface TestRecord {
   };
 }
 
+/** A PDF paper kept in the Papers library — import again without re-uploading. */
+export interface PaperRecord {
+  id: string;
+  name: string; // original filename
+  size: number; // bytes
+  num_pages: number;
+  added_at: number;
+  last_used_at?: number;
+  data: Blob; // the PDF itself, stored in IndexedDB
+}
+
 export interface ResponseRecord {
   id: string; // `${test_id}:${question_id}`
   test_id: string;

@@ -4,6 +4,7 @@ import type {
   ActiveSession,
   DailyLog,
   FormulaEntry,
+  PaperRecord,
   Question,
   ResponseRecord,
   SyllabusRow,
@@ -11,7 +12,9 @@ import type {
 } from "./types";
 
 const DB_NAME = "jee-study-app";
-const DB_VERSION = 1;
+// v2: adds the "papers" store (Papers library). onupgradeneeded creates any
+// missing store from STORES, so v1 installs upgrade in place — no data loss.
+const DB_VERSION = 2;
 
 export const STORES = [
   "questions",
@@ -21,6 +24,7 @@ export const STORES = [
   "formula",
   "daily_log",
   "kv",
+  "papers",
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -38,6 +42,7 @@ type StoreValueMap = {
   formula: FormulaEntry;
   daily_log: DailyLog;
   kv: KVRow;
+  papers: PaperRecord;
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

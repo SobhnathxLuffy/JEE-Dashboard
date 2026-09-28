@@ -1,0 +1,846 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→// ─── Page-Mode PDF import: upload → structure → answer-key grid → start ─────
+     4→     4→import { useEffect, useMemo, useRef, useState } from "react";
+     5→     5→import { Button } from "@/components/ui/button";
+     6→     6→import { Input } from "@/components/ui/input";
+     7→     7→import { Label } from "@/components/ui/label";
+     8→     8→import { Switch } from "@/components/ui/switch";
+     9→     9→import {
+    10→    10→  Select,
+    11→    11→  SelectContent,
+    12→    12→  SelectItem,
+    13→    13→  SelectTrigger,
+    14→    14→  SelectValue,
+    15→    15→} from "@/components/ui/select";
+    16→    16→import { Textarea } from "@/components/ui/textarea";
+    17→    17→import { Badge } from "@/components/ui/badge";
+    18→    18→import { toast } from "sonner";
+    19→    19→import { cn } from "@/lib/utils";
+    20→    20→import type { NavController } from "./App";
+    21→    21→import { EmptyNote, PageTitle, SectionCard } from "./shared";
+    22→    22→import { useLive, kvSet } from "@/lib/idb";
+    23→    23→import {
+    24→    24→  SUBJECTS,
+    25→    25→  uid,
+    26→    26→  type ActiveSession,
+    27→    27→  type PdfKeyEntry,
+    28→    28→  type PdfSection,
+    29→    29→  type Subject,
+    30→    30→} from "@/lib/types";
+    31→    31→
+    32→    32→const LETTERS = ["A", "B", "C", "D"] as const;
+    33→    33→const NUM_RE = /^-?\d+(?:\.\d+)?$/;
+    34→    34→const DURATION_PRESETS = [15, 30, 60, 90, 180];
+    35→    35→const MAX_GRID_CELLS = 300; // render guard against typo'd totals (coverage still computed fully)
+    36→    36→
+    37→    37→/**
+    38→    38→ * Answer-key text parser — tolerates the common dirty shapes:
+    39→    39→ * "1. A", "1A", "1) b", "7. B or C", "7 B/C", "9. bonus", "1. 42", "1. -12.5".
+    40→    40→ * Key numbers are paper numbering (whatever the sheet says).
+    41→    41→ */
+    42→    42→function parseAnswerKey(text: string): PdfKeyEntry[] {
+    43→    43→  const out: PdfKeyEntry[] = [];
+    44→    44→  const re =
+    45→    45→    /(\d{1,3})\s*[.):\-]?\s*(bonus|(?:[A-Da-d]\s*(?:\/|,|[oO][rR]\b)\s*)+[A-Da-d]|[A-Da-d])(?![A-Za-z0-9/])|(\d{1,3})\s*[.):\-]\s*(-?\d+(?:\.\d+)?)/g;
+    46→    46→  let m: RegExpExecArray | null;
+    47→    47→  while ((m = re.exec(text)) !== null) {
+    48→    48→    if (m[1] !== undefined && m[2] !== undefined) {
+    49→    49→      const v = m[2].trim();
+    50→    50→      if (/^bonus$/i.test(v)) {
+    51→    51→        out.push({ no: Number(m[1]), answer: "", bonus: true });
+    52→    52→      } else if (v.length > 1) {
+    53→    53→        const letters = [
+    54→    54→          ...new Set(
+    55→    55→            v
+    56→    56→              .split(/\s*(?:\/|,|[oO][rR]\b)\s*/)
+    57→    57→              .filter(Boolean)
+    58→    58→              .map((p) => p.toUpperCase())
+    59→    59→          ),
+    60→    60→        ].filter((p) => /^[A-D]$/.test(p));
+    61→    61→        if (letters.length > 1) {
+    62→    62→          out.push({ no: Number(m[1]), answer: letters[0], answers: letters });
+    63→    63→        } else if (letters.length === 1) {
+    64→    64→          out.push({ no: Number(m[1]), answer: letters[0] });
+    65→    65→        }
+    66→    66→      } else {
+    67→    67→        out.push({ no: Number(m[1]), answer: v.toUpperCase() });
+    68→    68→      }
+    69→    69→    } else if (m[3] !== undefined && m[4] !== undefined) {
+    70→    70→      out.push({ no: Number(m[3]), answer: m[4] });
+    71→    71→    }
+    72→    72→  }
+    73→    73→  // dedupe by question number (last wins)
+    74→    74→  const map = new Map<number, PdfKeyEntry>();
+    75→    75→  for (const k of out) map.set(k.no, k);
+    76→    76→  return [...map.values()].sort((a, b) => a.no - b.no);
+    77→    77→}
+    78→    78→
+    79→    79→type CellResult =
+    80→    80→  | { kind: "empty" }
+    81→    81→  | { kind: "entry"; entry: PdfKeyEntry }
+    82→    82→  | { kind: "invalid" };
+    83→    83→
+    84→    84→/** Interpret one key-grid cell (raw text) — option-number mapping applied here. */
+    85→    85→function parseCell(raw: string, optionNums: boolean): CellResult {
+    86→    86→  const t = raw.trim();
+    87→    87→  if (t === "") return { kind: "empty" };
+    88→    88→  if (/^bonus$/i.test(t)) {
+    89→    89→    return { kind: "entry", entry: { no: 0, answer: "", bonus: true } };
+    90→    90→  }
+    91→    91→  const parts = t
+    92→    92→    .split(/\s*(?:\/|,|[oO][rR]\b)\s*/)
+    93→    93→    .filter(Boolean);
+    94→    94→  if (parts.length > 1) {
+    95→    95→    const letters = [
+    96→    96→      ...new Set(parts.map((p) => p.toUpperCase())),
+    97→    97→    ].filter((p) => /^[A-D]$/.test(p));
+    98→    98→    if (letters.length > 1 && letters.length === parts.length) {
+    99→    99→      return { kind: "entry", entry: { no: 0, answer: letters[0], answers: letters } };
+   100→   100→    }
+   101→   101→    return { kind: "invalid" };
+   102→   102→  }
+   103→   103→  if (/^[A-Da-d]$/.test(t)) {
+   104→   104→    return { kind: "entry", entry: { no: 0, answer: t.toUpperCase() } };
+   105→   105→  }
+   106→   106→  if (optionNums && /^[1-4]$/.test(t)) {
+   107→   107→    return { kind: "entry", entry: { no: 0, answer: LETTERS[Number(t) - 1] } };
+   108→   108→  }
+   109→   109→  if (NUM_RE.test(t)) {
+   110→   110→    return { kind: "entry", entry: { no: 0, answer: t } };
+   111→   111→  }
+   112→   112→  return { kind: "invalid" };
+   113→   113→}
+   114→   114→
+   115→   115→interface SectionRowState {
+   116→   116→  chapter: string; // "" = generic
+   117→   117→  first_q: string;
+   118→   118→  last_q: string;
+   119→   119→  start_page: string;
+   120→   120→  end_page: string;
+   121→   121→}
+   122→   122→
+   123→   123→const emptyRow = (): SectionRowState => ({
+   124→   124→  chapter: "",
+   125→   125→  first_q: "",
+   126→   126→  last_q: "",
+   127→   127→  start_page: "1",
+   128→   128→  end_page: "1",
+   129→   129→});
+   130→   130→
+   131→   131→export function PdfImportView({ nav }: { nav: NavController }) {
+   132→   132→  const syllabus = useLive("syllabus");
+   133→   133→  const fileRef = useRef<HTMLInputElement>(null);
+   134→   134→  const keyFileRef = useRef<HTMLInputElement>(null);
+   135→   135→  const [fileName, setFileName] = useState<string | null>(null);
+   136→   136→  const [blob, setBlob] = useState<Blob | null>(null);
+   137→   137→  const [numPages, setNumPages] = useState(0);
+   138→   138→  const [loading, setLoading] = useState(false);
+   139→   139→
+   140→   140→  const [mode, setMode] = useState<"single" | "full">("single");
+   141→   141→  const [subject, setSubject] = useState<Subject>("Physics");
+   142→   142→  const [chapter, setChapter] = useState("");
+   143→   143→  const [startPage, setStartPage] = useState("1");
+   144→   144→  const [endPage, setEndPage] = useState("1");
+   145→   145→  const [totalQ, setTotalQ] = useState("10");
+   146→   146→  const [firstQ, setFirstQ] = useState("1");
+   147→   147→  const [duration, setDuration] = useState("10");
+   148→   148→  const [tolerance, setTolerance] = useState("0");
+   149→   149→  const [optionNums, setOptionNums] = useState(false);
+   150→   150→  const [keyLater, setKeyLater] = useState(false);
+   151→   151→  const [optHintDismissed, setOptHintDismissed] = useState(false);
+   152→   152→  const [name, setName] = useState("");
+   153→   153→  const [rows, setRows] = useState<Record<Subject, SectionRowState>>({
+   154→   154→    Physics: { ...emptyRow(), first_q: "1", last_q: "25" },
+   155→   155→    Chemistry: { ...emptyRow(), first_q: "26", last_q: "50" },
+   156→   156→    Mathematics: { ...emptyRow(), first_q: "51", last_q: "75" },
+   157→   157→  });
+   158→   158→
+   159→   159→  const [keyText, setKeyText] = useState("");
+   160→   160→  const [keyFileName, setKeyFileName] = useState<string | null>(null);
+   161→   161→  const [keyLoading, setKeyLoading] = useState(false);
+   162→   162→  const [grid, setGrid] = useState<Record<number, string>>({});
+   163→   163→  const editedRef = useRef<Set<number>>(new Set()); // cells typed by hand — paste refill skips them
+   164→   164→
+   165→   165→  const parsedKey = useMemo(() => parseAnswerKey(keyText), [keyText]);
+   166→   166→
+   167→   167→  const chaptersBySubject = useMemo(() => {
+   168→   168→    const m = new Map<Subject, string[]>();
+   169→   169→    for (const s of SUBJECTS) {
+   170→   170→      m.set(s, syllabus.filter((r) => r.subject === s).map((r) => r.chapter));
+   171→   171→    }
+   172→   172→    return m;
+   173→   173→  }, [syllabus]);
+   174→   174→
+   175→   175→  const chapters = useMemo(
+   176→   176→    () => chaptersBySubject.get(subject) ?? [],
+   177→   177→    [chaptersBySubject, subject]
+   178→   178→  );
+   179→   179→
+   180→   180→  // ── paper numbering: palette/paper range = firstQ .. firstQ+total−1 ──
+   181→   181→  const firstQN = useMemo(() => {
+   182→   182→    if (mode === "full") {
+   183→   183→      return Math.min(...SUBJECTS.map((s) => Number(rows[s].first_q) || 1));
+   184→   184→    }
+   185→   185→    return Number(firstQ) || 1;
+   186→   186→  }, [mode, rows, firstQ]);
+   187→   187→
+   188→   188→  const paperTotal = useMemo(() => {
+   189→   189→    if (mode === "full") {
+   190→   190→      const last = Math.max(...SUBJECTS.map((s) => Number(rows[s].last_q) || 1));
+   191→   191→      return Math.max(0, last - firstQN + 1);
+   192→   192→    }
+   193→   193→    return Number(totalQ) || 0;
+   194→   194→  }, [mode, rows, firstQN, totalQ]);
+   195→   195→
+   196→   196→  const paperNos = useMemo(() => {
+   197→   197→    const out: number[] = [];
+   198→   198→    for (let i = 0; i < paperTotal; i++) out.push(firstQN + i);
+   199→   199→    return out;
+   200→   200→  }, [firstQN, paperTotal]);
+   201→   201→
+   202→   202→  // paste/key-PDF parse → bulk-fill the grid (manually edited cells always win)
+   203→   203→  useEffect(() => {
+   204→   204→    if (parsedKey.length === 0) return;
+   205→   205→    setGrid((g) => {
+   206→   206→      const next = { ...g };
+   207→   207→      for (const k of parsedKey) {
+   208→   208→        if (editedRef.current.has(k.no)) continue;
+   209→   209→        next[k.no] = k.bonus ? "bonus" : k.answers ? k.answers.join("/") : k.answer;
+   210→   210→      }
+   211→   211→      return next;
+   212→   212→    });
+   213→   213→  }, [parsedKey]);
+   214→   214→
+   215→   215→  // re-arm the option-number hint when a different key is pasted
+   216→   216→  useEffect(() => {
+   217→   217→    setOptHintDismissed(false);
+   218→   218→  }, [parsedKey.length]);
+   219→   219→
+   220→   220→  // ── A1 auto-suggest: ≥80% of parsed numeric values ∈ {1,2,3,4} ──
+   221→   221→  const optNumSuggest = useMemo(() => {
+   222→   222→    if (optionNums) return false;
+   223→   223→    const nums = parsedKey.filter((k) => !k.bonus && NUM_RE.test(k.answer));
+   224→   224→    if (nums.length < 4) return false;
+   225→   225→    const inRange = nums.filter((k) => ["1", "2", "3", "4"].includes(k.answer));
+   226→   226→    return inRange.length / nums.length >= 0.8;
+   227→   227→  }, [parsedKey, optionNums]);
+   228→   228→
+   229→   229→  // authoritative key: grid cells over the paper range (toggle mapping applied live)
+   230→   230→  const gridKey = useMemo(() => {
+   231→   231→    const out: PdfKeyEntry[] = [];
+   232→   232→    for (const no of paperNos) {
+   233→   233→      const raw = grid[no];
+   234→   234→      if (raw === undefined) continue;
+   235→   235→      const r = parseCell(raw, optionNums);
+   236→   236→      if (r.kind === "entry") out.push({ ...r.entry, no });
+   237→   237→    }
+   238→   238→    return out;
+   239→   239→  }, [paperNos, grid, optionNums]);
+   240→   240→
+   241→   241→  const coverage = useMemo(() => {
+   242→   242→    const have = new Set(gridKey.map((k) => k.no));
+   243→   243→    const missing = paperNos.filter((no) => !have.has(no));
+   244→   244→    return { found: gridKey.length, missing };
+   245→   245→  }, [gridKey, paperNos]);
+   246→   246→
+   247→   247→  function setCell(no: number, raw: string) {
+   248→   248→    editedRef.current.add(no);
+   249→   249→    setGrid((g) => {
+   250→   250→      const next = { ...g };
+   251→   251→      if (raw.trim() === "") delete next[no];
+   252→   252→      else next[no] = raw;
+   253→   253→      return next;
+   254→   254→    });
+   255→   255→  }
+   256→   256→
+   257→   257→  function clearGrid() {
+   258→   258→    if (Object.keys(grid).length === 0) return;
+   259→   259→    if (!window.confirm("Clear all key cells? You can re-fill them from the paste box.")) return;
+   260→   260→    editedRef.current = new Set();
+   261→   261→    setGrid({});
+   262→   262→  }
+   263→   263→
+   264→   264→  async function onFile(file: File) {
+   265→   265→    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+   266→   266→      toast.error("That's not a PDF");
+   267→   267→      return;
+   268→   268→    }
+   269→   269→    setLoading(true);
+   270→   270→    try {
+   271→   271→      const pdfjs = await import("pdfjs-dist");
+   272→   272→      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+   273→   273→      const buf = await file.arrayBuffer();
+   274→   274→      const doc = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
+   275→   275→      setNumPages(doc.numPages);
+   276→   276→      doc.destroy();
+   277→   277→      setBlob(file);
+   278→   278→      setFileName(file.name);
+   279→   279→      setEndPage(String(Math.min(5, doc.numPages)));
+   280→   280→      if (!name) setName(`PDF test — ${file.name.replace(/\.pdf$/i, "").slice(0, 40)}`);
+   281→   281→      // persist immediately — a refresh before Start must not lose the file
+   282→   282→      await kvSet("pdf-blob", file);
+   283→   283→      toast.success(`Loaded ${doc.numPages} pages`);
+   284→   284→    } catch (e) {
+   285→   285→      toast.error(`Could not read PDF: ${String(e)}`);
+   286→   286→    } finally {
+   287→   287→      setLoading(false);
+   288→   288→    }
+   289→   289→  }
+   290→   290→
+   291→   291→  // ── A4: digital key-PDF → text layer → same parser → grid + textarea ──
+   292→   292→  async function onKeyFile(file: File) {
+   293→   293→    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+   294→   294→      toast.error("That's not a PDF");
+   295→   295→      return;
+   296→   296→    }
+   297→   297→    setKeyLoading(true);
+   298→   298→    try {
+   299→   299→      const pdfjs = await import("pdfjs-dist");
+   300→   300→      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+   301→   301→      const buf = await file.arrayBuffer();
+   302→   302→      const doc = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
+   303→   303→      let text = "";
+   304→   304→      for (let p = 1; p <= doc.numPages; p++) {
+   305→   305→        const page = await doc.getPage(p);
+   306→   306→        const tc = await page.getTextContent();
+   307→   307→        text += tc.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
+   308→   308→        if (text.length > 400_000) break; // safety cap
+   309→   309→      }
+   310→   310→      doc.destroy();
+   311→   311→      const parsed = parseAnswerKey(text.slice(0, 400_000));
+   312→   312→      if (parsed.length < 2) {
+   313→   313→        toast.error("No readable text — this key looks scanned. Paste it instead.");
+   314→   314→        return;
+   315→   315→      }
+   316→   316→      setKeyFileName(file.name);
+   317→   317→      setKeyText(text.slice(0, 400_000)); // fills grid via the paste effect
+   318→   318→      toast.success(`${parsed.length} keys extracted from key PDF`);
+   319→   319→    } catch (e) {
+   320→   320→      toast.error(`Could not read key PDF: ${String(e)}`);
+   321→   321→    } finally {
+   322→   322→      setKeyLoading(false);
+   323→   323→    }
+   324→   324→  }
+   325→   325→
+   326→   326→  async function startTest() {
+   327→   327→    if (!blob) {
+   328→   328→      toast.error("Upload a PDF first");
+   329→   329→      return;
+   330→   330→    }
+   331→   331→    const tol = Math.max(0, Number(tolerance) || 0);
+   332→   332→    let meta: NonNullable<ActiveSession["pdf_meta"]>;
+   333→   333→    let subjectOrder: Subject[];
+   334→   334→
+   335→   335→    if (mode === "full") {
+   336→   336→      const secs: PdfSection[] = [];
+   337→   337→      for (const s of SUBJECTS) {
+   338→   338→        const r = rows[s];
+   339→   339→        const fq = Number(r.first_q);
+   340→   340→        const lq = Number(r.last_q);
+   341→   341→        const spg = Number(r.start_page);
+   342→   342→        const epg = Number(r.end_page);
+   343→   343→        if (!Number.isFinite(fq) || !Number.isFinite(lq) || fq < 1 || lq < fq) {
+   344→   344→          toast.error(`${s}: check first / last question numbers`);
+   345→   345→          return;
+   346→   346→        }
+   347→   347→        if (!Number.isFinite(spg) || !Number.isFinite(epg) || spg < 1 || epg < spg) {
+   348→   348→          toast.error(`${s}: check start / end pages`);
+   349→   349→          return;
+   350→   350→        }
+   351→   351→        secs.push({
+   352→   352→          subject: s,
+   353→   353→          chapter: r.chapter || `${s} questions`,
+   354→   354→          first_q: fq,
+   355→   355→          last_q: lq,
+   356→   356→          start_page: spg,
+   357→   357→          end_page: epg,
+   358→   358→        });
+   359→   359→      }
+   360→   360→      secs.sort((a, b) => a.first_q - b.first_q);
+   361→   361→      for (let i = 1; i < secs.length; i++) {
+   362→   362→        if (secs[i].first_q <= secs[i - 1].last_q) {
+   363→   363→          toast.error("Sections overlap in question numbers — fix the section rows");
+   364→   364→          return;
+   365→   365→        }
+   366→   366→      }
+   367→   367→      meta = {
+   368→   368→        subject: secs[0].subject,
+   369→   369→        chapter: "Full paper",
+   370→   370→        start_page: Math.min(...secs.map((s) => s.start_page)),
+   371→   371→        end_page: Math.max(...secs.map((s) => s.end_page)),
+   372→   372→        total_questions: secs[secs.length - 1].last_q - secs[0].first_q + 1,
+   373→   373→        key: keyLater ? [] : gridKey,
+   374→   374→        key_later: keyLater,
+   375→   375→        sections: secs,
+   376→   376→        first_q: secs[0].first_q,
+   377→   377→        tolerance: tol,
+   378→   378→      };
+   379→   379→      subjectOrder = [...SUBJECTS];
+   380→   380→    } else {
+   381→   381→      const sp = Number(startPage) || 1;
+   382→   382→      const ep = Number(endPage) || sp;
+   383→   383→      const tq = Number(totalQ) || 0;
+   384→   384→      const fq = Number(firstQ) || 1;
+   385→   385→      if (tq <= 0) {
+   386→   386→        toast.error("Total questions must be ≥ 1");
+   387→   387→        return;
+   388→   388→      }
+   389→   389→      if (fq < 1) {
+   390→   390→        toast.error("First question # must be ≥ 1");
+   391→   391→        return;
+   392→   392→      }
+   393→   393→      const chap = chapter || "PDF questions";
+   394→   394→      meta = {
+   395→   395→        subject,
+   396→   396→        chapter: chap,
+   397→   397→        start_page: sp,
+   398→   398→        end_page: Math.max(sp, ep),
+   399→   399→        total_questions: tq,
+   400→   400→        key: keyLater ? [] : gridKey,
+   401→   401→        key_later: keyLater,
+   402→   402→        sections: [
+   403→   403→          {
+   404→   404→            subject,
+   405→   405→            chapter: chap,
+   406→   406→            first_q: fq,
+   407→   407→            last_q: fq + tq - 1,
+   408→   408→            start_page: sp,
+   409→   409→            end_page: Math.max(sp, ep),
+   410→   410→          },
+   411→   411→        ],
+   412→   412→        first_q: fq,
+   413→   413→        tolerance: tol,
+   414→   414→      };
+   415→   415→      subjectOrder = [subject];
+   416→   416→    }
+   417→   417→
+   418→   418→    if (!keyLater && gridKey.length === 0) {
+   419→   419→      toast.error("Answer key is empty — paste the key, upload a digital key PDF, fill the grid, or switch on “score later”");
+   420→   420→      return;
+   421→   421→    }
+   422→   422→    if (!keyLater && coverage.missing.length > 0) {
+   423→   423→      const ok = window.confirm(
+   424→   424→        `${coverage.missing.length} of ${paperTotal} questions have no key (${coverage.missing
+   425→   425→          .slice(0, 8)
+   426→   426→          .join(", ")}${coverage.missing.length > 8 ? "…" : ""}). They will be scored as unattempted. Start anyway?`
+   427→   427→      );
+   428→   428→      if (!ok) return;
+   429→   429→    }
+   430→   430→
+   431→   431→    const session: ActiveSession = {
+   432→   432→      key: "active",
+   433→   433→      test_id: uid(),
+   434→   434→      mode: "pdf",
+   435→   435→      test_type: "pdf",
+   436→   436→      name: name.trim() || "PDF test",
+   437→   437→      subject_order: subjectOrder,
+   438→   438→      question_ids: [],
+   439→   439→      pdf_meta: meta,
+   440→   440→      duration_min: Math.max(1, Number(duration) || 1),
+   441→   441→      started_at: Date.now(),
+   442→   442→      answers: {},
+   443→   443→      marked: [],
+   444→   444→      current: 0,
+   445→   445→      q_times: {},
+   446→   446→      q_entered_at: Date.now(),
+   447→   447→    };
+   448→   448→    await kvSet("pdf-blob", blob); // idempotent with the file-pick write
+   449→   449→    nav.startSession(session, blob);
+   450→   450→  }
+   451→   451→
+   452→   452→  const renderCells = paperNos.slice(0, MAX_GRID_CELLS);
+   453→   453→
+   454→   454→  return (
+   455→   455→    <div className="space-y-6">
+   456→   456→      <PageTitle
+   457→   457→        title="Page-Mode PDF Test"
+   458→   458→        subtitle="Scanned Arihant pages, NTA papers, coaching sheets — anything. Keep the NTA answer-key tab open while pasting keys."
+   459→   459→      />
+   460→   460→
+   461→   461→      <div className="grid lg:grid-cols-2 gap-6">
+   462→   462→        <div className="space-y-6">
+   463→   463→          <SectionCard title="1 · Upload PDF" subtitle="stays local — never uploaded anywhere">
+   464→   464→            <input
+   465→   465→              ref={fileRef}
+   466→   466→              type="file"
+   467→   467→              accept="application/pdf"
+   468→   468→              className="hidden"
+   469→   469→              onChange={(e) => {
+   470→   470→                const f = e.target.files?.[0];
+   471→   471→                if (f) void onFile(f);
+   472→   472→              }}
+   473→   473→            />
+   474→   474→            <button
+   475→   475→              onClick={() => fileRef.current?.click()}
+   476→   476→              className="w-full border-2 border-dashed border-stone-300 rounded-xl px-6 py-10 text-center hover:border-emerald-500 hover:bg-emerald-50/40 transition-colors"
+   477→   477→            >
+   478→   478→              <div className="text-sm font-medium text-stone-700">
+   479→   479→                {loading ? "Reading PDF…" : fileName ? `✓ ${fileName}` : "Click to choose a PDF file"}
+   480→   480→              </div>
+   481→   481→              {numPages > 0 ? (
+   482→   482→                <div className="text-xs text-stone-400 mt-1">{numPages} pages detected</div>
+   483→   483→              ) : (
+   484→   484→                <div className="text-xs text-stone-400 mt-1">
+   485→   485→                  rendered locally with pdf.js — no upload
+   486→   486→                </div>
+   487→   487→              )}
+   488→   488→            </button>
+   489→   489→          </SectionCard>
+   490→   490→
+   491→   491→          <SectionCard
+   492→   492→            title="2 · Structure"
+   493→   493→            subtitle={mode === "single" ? "map one subject's questions to pages" : "full paper — one row per section"}
+   494→   494→          >
+   495→   495→            <div className="space-y-1.5 mb-4 max-w-xs">
+   496→   496→              <Label className="text-xs">Mode</Label>
+   497→   497→              <Select
+   498→   498→                value={mode}
+   499→   499→                onValueChange={(v) => setMode(v as "single" | "full")}
+   500→   500→              >
+   501→   501→                <SelectTrigger aria-label="Mode"><SelectValue /></SelectTrigger>
+   502→   502→                <SelectContent>
+   503→   503→                  <SelectItem value="single">Single section</SelectItem>
+   504→   504→                  <SelectItem value="full">Full paper (3 sections)</SelectItem>
+   505→   505→                </SelectContent>
+   506→   506→              </Select>
+   507→   507→            </div>
+   508→   508→
+   509→   509→            {mode === "single" ? (
+   510→   510→              <>
+   511→   511→                <div className="grid grid-cols-2 gap-3">
+   512→   512→                  <div className="space-y-1.5">
+   513→   513→                    <Label className="text-xs">Subject</Label>
+   514→   514→                    <Select
+   515→   515→                      value={subject}
+   516→   516→                      onValueChange={(v) => {
+   517→   517→                        setSubject(v as Subject);
+   518→   518→                        setChapter("");
+   519→   519→                      }}
+   520→   520→                    >
+   521→   521→                      <SelectTrigger aria-label="Subject"><SelectValue /></SelectTrigger>
+   522→   522→                      <SelectContent>
+   523→   523→                        {SUBJECTS.map((s) => (
+   524→   524→                          <SelectItem key={s} value={s}>{s}</SelectItem>
+   525→   525→                        ))}
+   526→   526→                      </SelectContent>
+   527→   527→                    </Select>
+   528→   528→                  </div>
+   529→   529→                  <div className="space-y-1.5">
+   530→   530→                    <Label className="text-xs">Chapter label</Label>
+   531→   531→                    <Select value={chapter} onValueChange={setChapter}>
+   532→   532→                      <SelectTrigger aria-label="Chapter">
+   533→   533→                        <SelectValue placeholder="pick or leave generic" />
+   534→   534→                      </SelectTrigger>
+   535→   535→                      <SelectContent className="max-h-64">
+   536→   536→                        <SelectItem value="PDF questions">PDF questions (generic)</SelectItem>
+   537→   537→                        {chapters.map((c) => (
+   538→   538→                          <SelectItem key={c} value={c}>{c}</SelectItem>
+   539→   539→                        ))}
+   540→   540→                      </SelectContent>
+   541→   541→                    </Select>
+   542→   542→                  </div>
+   543→   543→                  <div className="space-y-1.5">
+   544→   544→                    <Label className="text-xs">Start page</Label>
+   545→   545→                    <Input value={startPage} onChange={(e) => setStartPage(e.target.value)} inputMode="numeric" />
+   546→   546→                  </div>
+   547→   547→                  <div className="space-y-1.5">
+   548→   548→                    <Label className="text-xs">End page</Label>
+   549→   549→                    <Input value={endPage} onChange={(e) => setEndPage(e.target.value)} inputMode="numeric" />
+   550→   550→                  </div>
+   551→   551→                  <div className="space-y-1.5">
+   552→   552→                    <Label className="text-xs">First question #</Label>
+   553→   553→                    <Input
+   554→   554→                      value={firstQ}
+   555→   555→                      onChange={(e) => setFirstQ(e.target.value)}
+   556→   556→                      inputMode="numeric"
+   557→   557→                      aria-label="First question number"
+   558→   558→                    />
+   559→   559→                    <p className="text-[11px] text-stone-400">sheet says Q21? put 21 — the palette mirrors the paper</p>
+   560→   560→                  </div>
+   561→   561→                  <div className="space-y-1.5">
+   562→   562→                    <Label className="text-xs">Total questions</Label>
+   563→   563→                    <Input value={totalQ} onChange={(e) => setTotalQ(e.target.value)} inputMode="numeric" />
+   564→   564→                    <p className="text-[11px] text-stone-400">your PDF decides</p>
+   565→   565→                  </div>
+   566→   566→                </div>
+   567→   567→              </>
+   568→   568→            ) : (
+   569→   569→              <div className="space-y-3">
+   570→   570→                <p className="text-[11px] text-stone-400">
+   571→   571→                  Question numbers are the paper&apos;s own numbering. 2025 pattern preset: 25 Qs per subject — edit freely.
+   572→   572→                </p>
+   573→   573→                {SUBJECTS.map((s) => {
+   574→   574→                  const r = rows[s];
+   575→   575→                  const set = (patch: Partial<SectionRowState>) =>
+   576→   576→                    setRows((prev) => ({ ...prev, [s]: { ...prev[s], ...patch } }));
+   577→   577→                  return (
+   578→   578→                    <div key={s} className="border border-stone-200 rounded-lg p-3 space-y-2 bg-stone-50/50">
+   579→   579→                      <div className="flex items-center justify-between gap-2">
+   580→   580→                        <span className="text-xs font-bold text-stone-700">{s}</span>
+   581→   581→                        <Select
+   582→   582→                          value={r.chapter === "" ? "generic" : r.chapter}
+   583→   583→                          onValueChange={(v) => set({ chapter: v === "generic" ? "" : v })}
+   584→   584→                        >
+   585→   585→                          <SelectTrigger className="h-8 text-xs max-w-[220px]" aria-label={`${s} chapter`}>
+   586→   586→                            <SelectValue placeholder="chapter (generic)" />
+   587→   587→                          </SelectTrigger>
+   588→   588→                          <SelectContent className="max-h-64">
+   589→   589→                            <SelectItem value="generic">PDF questions (generic)</SelectItem>
+   590→   590→                            {(chaptersBySubject.get(s) ?? []).map((c) => (
+   591→   591→                              <SelectItem key={c} value={c}>{c}</SelectItem>
+   592→   592→                            ))}
+   593→   593→                          </SelectContent>
+   594→   594→                        </Select>
+   595→   595→                      </div>
+   596→   596→                      <div className="grid grid-cols-4 gap-2">
+   597→   597→                        <div className="space-y-1">
+   598→   598→                          <Label className="text-[10px] text-stone-400">First Q</Label>
+   599→   599→                          <Input className="h-8 text-sm" value={r.first_q} onChange={(e) => set({ first_q: e.target.value })} inputMode="numeric" aria-label={`${s} first question`} />
+   600→   600→                        </div>
+   601→   601→                        <div className="space-y-1">
+   602→   602→                          <Label className="text-[10px] text-stone-400">Last Q</Label>
+   603→   603→                          <Input className="h-8 text-sm" value={r.last_q} onChange={(e) => set({ last_q: e.target.value })} inputMode="numeric" aria-label={`${s} last question`} />
+   604→   604→                        </div>
+   605→   605→                        <div className="space-y-1">
+   606→   606→                          <Label className="text-[10px] text-stone-400">Start p.</Label>
+   607→   607→                          <Input className="h-8 text-sm" value={r.start_page} onChange={(e) => set({ start_page: e.target.value })} inputMode="numeric" aria-label={`${s} start page`} />
+   608→   608→                        </div>
+   609→   609→                        <div className="space-y-1">
+   610→   610→                          <Label className="text-[10px] text-stone-400">End p.</Label>
+   611→   611→                          <Input className="h-8 text-sm" value={r.end_page} onChange={(e) => set({ end_page: e.target.value })} inputMode="numeric" aria-label={`${s} end page`} />
+   612→   612→                        </div>
+   613→   613→                      </div>
+   614→   614→                    </div>
+   615→   615→                  );
+   616→   616→                })}
+   617→   617→              </div>
+   618→   618→            )}
+   619→   619→
+   620→   620→            <div className="space-y-1.5 mt-4">
+   621→   621→              <Label className="text-xs">Duration (min)</Label>
+   622→   622→              <div className="flex flex-wrap gap-1.5">
+   623→   623→                {DURATION_PRESETS.map((p) => {
+   624→   624→                  const hot = mode === "full" && (p === 90 || p === 180);
+   625→   625→                  const active = Number(duration) === p;
+   626→   626→                  return (
+   627→   627→                    <button
+   628→   628→                      key={p}
+   629→   629→                      type="button"
+   630→   630→                      onClick={() => setDuration(String(p))}
+   631→   631→                      className={cn(
+   632→   632→                        "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
+   633→   633→                        active
+   634→   634→                          ? "bg-emerald-700 text-white border-emerald-700"
+   635→   635→                          : hot
+   636→   636→                            ? "border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+   637→   637→                            : "border-stone-300 text-stone-600 hover:bg-stone-100"
+   638→   638→                      )}
+   639→   639→                      aria-pressed={active}
+   640→   640→                      aria-label={`Set duration to ${p} minutes`}
+   641→   641→                    >
+   642→   642→                      {p}m
+   643→   643→                    </button>
+   644→   644→                  );
+   645→   645→                })}
+   646→   646→              </div>
+   647→   647→              <Input value={duration} onChange={(e) => setDuration(e.target.value)} inputMode="numeric" className="mt-2 max-w-[120px]" aria-label="Duration minutes" />
+   648→   648→            </div>
+   649→   649→
+   650→   650→            <div className="space-y-1.5 mt-3">
+   651→   651→              <Label className="text-xs">Test name</Label>
+   652→   652→              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Arihant Electrostatics drill" />
+   653→   653→            </div>
+   654→   654→          </SectionCard>
+   655→   655→        </div>
+   656→   656→
+   657→   657→        <div className="space-y-6">
+   658→   658→          <SectionCard
+   659→   659→            title="3 · Answer key"
+   660→   660→            subtitle="paste, upload a digital key PDF, or type into the grid — grid edits always win"
+   661→   661→          >
+   662→   662→            <div className="flex items-center gap-2 mb-3 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+   663→   663→              <Switch
+   664→   664→                id="key-later"
+   665→   665→                checked={keyLater}
+   666→   666→                onCheckedChange={(v) => setKeyLater(v)}
+   667→   667→                aria-label="No key — score later by self-marking"
+   668→   668→              />
+   669→   669→              <Label htmlFor="key-later" className="text-xs cursor-pointer">
+   670→   670→                No answer key? Score later — self-mark each answer in Results
+   671→   671→              </Label>
+   672→   672→            </div>
+   673→   673→            <Textarea
+   674→   674→              value={keyText}
+   675→   675→              onChange={(e) => setKeyText(e.target.value)}
+   676→   676→              rows={6}
+   677→   677→              disabled={keyLater}
+   678→   678→              placeholder={"1. A\n2. C\n7. B or C\n9. bonus\n5. 42"}
+   679→   679→              className="font-mono text-sm"
+   680→   680→            />
+   681→   681→
+   682→   682→            <div className="flex flex-wrap items-center gap-3 mt-3">
+   683→   683→              <input
+   684→   684→                ref={keyFileRef}
+   685→   685→                type="file"
+   686→   686→                accept="application/pdf"
+   687→   687→                className="hidden"
+   688→   688→                onChange={(e) => {
+   689→   689→                  const f = e.target.files?.[0];
+   690→   690→                  if (f) void onKeyFile(f);
+   691→   691→                }}
+   692→   692→              />
+   693→   693→              <Button
+   694→   694→                type="button"
+   695→   695→                variant="outline"
+   696→   696→                size="sm"
+   697→   697→                onClick={() => keyFileRef.current?.click()}
+   698→   698→                disabled={keyLoading || keyLater}
+   699→   699→              >
+   700→   700→                {keyLoading
+   701→   701→                  ? "Reading key PDF…"
+   702→   702→                  : keyFileName
+   703→   703→                    ? `✓ Key PDF: ${keyFileName.slice(0, 28)}`
+   704→   704→                    : "Upload answer-key PDF (digital)"}
+   705→   705→              </Button>
+   706→   706→              <div className="flex items-center gap-2">
+   707→   707→                <Switch
+   708→   708→                  id="opt-nums"
+   709→   709→                  checked={optionNums}
+   710→   710→                  onCheckedChange={(v) => setOptionNums(v)}
+   711→   711→                  aria-label="Key uses option numbers 1 to 4"
+   712→   712→                />
+   713→   713→                <Label htmlFor="opt-nums" className="text-xs cursor-pointer">
+   714→   714→                  Key uses option numbers (1)–(4)
+   715→   715→                </Label>
+   716→   716→              </div>
+   717→   717→            </div>
+   718→   718→            <p className="text-[11px] text-stone-400 mt-1.5">
+   719→   719→              Option-number mapping turns key values 1–4 into A–D, live. Turn it off if numerical answers can legitimately be 1–4.
+   720→   720→            </p>
+   721→   721→
+   722→   722→            {optNumSuggest && !optHintDismissed ? (
+   723→   723→              <div className="mt-2 flex items-center justify-between gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-800">
+   724→   724→                <span>
+   725→   725→                  {parsedKey.filter((k) => ["1", "2", "3", "4"].includes(k.answer)).length} of your key values
+   726→   726→                  look like option numbers (1)–(4) — turn on the mapping above?
+   727→   727→                </span>
+   728→   728→                <button
+   729→   729→                  type="button"
+   730→   730→                  onClick={() => setOptHintDismissed(true)}
+   731→   731→                  className="text-amber-700 hover:text-amber-900 font-medium shrink-0"
+   732→   732→                  aria-label="Dismiss suggestion"
+   733→   733→                >
+   734→   734→                  Dismiss
+   735→   735→                </button>
+   736→   736→              </div>
+   737→   737→            ) : null}
+   738→   738→
+   739→   739→            <div className="grid grid-cols-2 gap-3 mt-3">
+   740→   740→              <div className="space-y-1.5">
+   741→   741→                <Label className="text-xs">Tolerance ± (numerical keys)</Label>
+   742→   742→                <Input
+   743→   743→                  value={tolerance}
+   744→   744→                  onChange={(e) => setTolerance(e.target.value)}
+   745→   745→                  inputMode="decimal"
+   746→   746→                  aria-label="Numerical tolerance"
+   747→   747→                />
+   748→   748→                <p className="text-[11px] text-stone-400">0 = exact match; answers within ±tolerance score +4</p>
+   749→   749→              </div>
+   750→   750→              <div className="flex items-end">
+   751→   751→                <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={clearGrid}>
+   752→   752→                  Clear grid
+   753→   753→                </Button>
+   754→   754→              </div>
+   755→   755→            </div>
+   756→   756→
+   757→   757→            {/* editable key grid — authoritative key */}
+   758→   758→            <div className={keyLater ? "mt-4 pointer-events-none opacity-50" : "mt-4"}>
+   759→   759→              <div className="flex items-center gap-2 flex-wrap mb-2">
+   760→   760→                <Badge className="bg-emerald-700 hover:bg-emerald-700 text-white border-0">
+   761→   761→                  {gridKey.length} key{gridKey.length === 1 ? "" : "s"} in grid
+   762→   762→                </Badge>
+   763→   763→                {parsedKey.length > 0 ? (
+   764→   764→                  <Badge variant="outline" className="border-stone-300 text-stone-500">
+   765→   765→                    {parsedKey.length} parsed from text
+   766→   766→                  </Badge>
+   767→   767→                ) : null}
+   768→   768→                {paperTotal > 0 ? (
+   769→   769→                  coverage.missing.length === 0 ? (
+   770→   770→                    <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+   771→   771→                      full coverage of Q{firstQN}–{firstQN + paperTotal - 1}
+   772→   772→                    </Badge>
+   773→   773→                  ) : (
+   774→   774→                    <Badge variant="outline" className="border-amber-400 text-amber-700">
+   775→   775→                      missing: {coverage.missing.slice(0, 10).join(", ")}
+   776→   776→                      {coverage.missing.length > 10 ? ` +${coverage.missing.length - 10}` : ""}
+   777→   777→                    </Badge>
+   778→   778→                  )
+   779→   779→                ) : null}
+   780→   780→                {paperTotal > MAX_GRID_CELLS ? (
+   781→   781→                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+   782→   782→                    showing first {MAX_GRID_CELLS} cells
+   783→   783→                  </Badge>
+   784→   784→                ) : null}
+   785→   785→              </div>
+   786→   786→
+   787→   787→              {renderCells.length === 0 ? (
+   788→   788→                <EmptyNote>
+   789→   789→                  Set the question range (left), then paste a key or fill cells here. Format: A–D, “B/C”,
+   790→   790→                  “bonus”, or a number.
+   791→   791→                </EmptyNote>
+   792→   792→              ) : (
+   793→   793→                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5 max-h-96 overflow-y-auto p-0.5">
+   794→   794→                  {renderCells.map((no) => {
+   795→   795→                    const raw = grid[no] ?? "";
+   796→   796→                    const res = raw.trim() === "" ? null : parseCell(raw, optionNums);
+   797→   797→                    const invalid = res !== null && res.kind === "invalid";
+   798→   798→                    return (
+   799→   799→                      <div key={no} className="space-y-0.5">
+   800→   800→                        <div className={cn("text-[10px] leading-none", invalid ? "text-red-500 font-semibold" : "text-stone-400")}>
+   801→   801→                          Q{no}
+   802→   802→                        </div>
+   803→   803→                        <Input
+   804→   804→                          value={raw}
+   805→   805→                          onChange={(e) => setCell(no, e.target.value)}
+   806→   806→                          className={cn(
+   807→   807→                            "h-8 text-xs font-mono px-1.5 text-center",
+   808→   808→                            invalid && "border-red-400 focus-visible:ring-red-300"
+   809→   809→                          )}
+   810→   810→                          aria-label={`Key for question ${no}`}
+   811→   811→                          placeholder="—"
+   812→   812→                        />
+   813→   813→                      </div>
+   814→   814→                    );
+   815→   815→                  })}
+   816→   816→                </div>
+   817→   817→              )}
+   818→   818→            </div>
+   819→   819→          </SectionCard>
+   820→   820→
+   821→   821→          <SectionCard title="4 · Start" subtitle="pages render inside the player next to the palette">
+   822→   822→            <ul className="text-xs text-stone-500 space-y-1.5 list-disc pl-4 mb-4">
+   823→   823→              <li>The player shows the page holding the current question and follows you as you move.</li>
+   824→   824→              <li>Answer A–D or type numbers, exactly like the key — multi-answer keys (“B/C”) accept either.</li>
+   825→   825→              {keyLater ? (
+   826→   826→                <li className="text-amber-700 font-medium">
+   827→   827→                  Score later is ON — you’ll self-mark each attempted question in Results; score and analytics fill in as you mark.
+   828→   828→                </li>
+   829→   829→              ) : (
+   830→   830→                <li>Scoring is automatic at submit — then tag every mistake.</li>
+   831→   831→              )}
+   832→   832→            </ul>
+   833→   833→            <Button
+   834→   834→              className="w-full bg-emerald-700 hover:bg-emerald-800"
+   835→   835→              disabled={!blob || (!keyLater && gridKey.length === 0) || loading}
+   836→   836→              onClick={() => void startTest()}
+   837→   837→            >
+   838→   838→              Start PDF test
+   839→   839→            </Button>
+   840→   840→          </SectionCard>
+   841→   841→        </div>
+   842→   842→      </div>
+   843→   843→    </div>
+   844→   844→  );
+   845→   845→}
+   846→   846→

@@ -19,98 +19,25 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
 import { EmptyNote, PageTitle, SectionCard } from "./shared";
-import { useLive, kvSet } from "@/lib/idb";
+import { useLive, kvSet, getAll, put } from "@/lib/idb";
 import {
   SUBJECTS,
   uid,
   type ActiveSession,
+  type PaperRecord,
   type PdfKeyEntry,
   type PdfSection,
   type Subject,
 } from "@/lib/types";
+import {
+  extractKeyTextFromPdf,
+  NUM_RE,
+  parseAnswerKey,
+  parseCell,
+} from "@/lib/pdf-key";
 
-const LETTERS = ["A", "B", "C", "D"] as const;
-const NUM_RE = /^-?\d+(?:\.\d+)?$/;
 const DURATION_PRESETS = [15, 30, 60, 90, 180];
 const MAX_GRID_CELLS = 300; // render guard against typo'd totals (coverage still computed fully)
-
-/**
- * Answer-key text parser — tolerates the common dirty shapes:
- * "1. A", "1A", "1) b", "7. B or C", "7 B/C", "9. bonus", "1. 42", "1. -12.5".
- * Key numbers are paper numbering (whatever the sheet says).
- */
-function parseAnswerKey(text: string): PdfKeyEntry[] {
-  const out: PdfKeyEntry[] = [];
-  const re =
-    /(\d{1,3})\s*[.):\-]?\s*(bonus|(?:[A-Da-d]\s*(?:\/|,|[oO][rR]\b)\s*)+[A-Da-d]|[A-Da-d])(?![A-Za-z0-9/])|(\d{1,3})\s*[.):\-]\s*(-?\d+(?:\.\d+)?)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m[1] !== undefined && m[2] !== undefined) {
-      const v = m[2].trim();
-      if (/^bonus$/i.test(v)) {
-        out.push({ no: Number(m[1]), answer: "", bonus: true });
-      } else if (v.length > 1) {
-        const letters = [
-          ...new Set(
-            v
-              .split(/\s*(?:\/|,|[oO][rR]\b)\s*/)
-              .filter(Boolean)
-              .map((p) => p.toUpperCase())
-          ),
-        ].filter((p) => /^[A-D]$/.test(p));
-        if (letters.length > 1) {
-          out.push({ no: Number(m[1]), answer: letters[0], answers: letters });
-        } else if (letters.length === 1) {
-          out.push({ no: Number(m[1]), answer: letters[0] });
-        }
-      } else {
-        out.push({ no: Number(m[1]), answer: v.toUpperCase() });
-      }
-    } else if (m[3] !== undefined && m[4] !== undefined) {
-      out.push({ no: Number(m[3]), answer: m[4] });
-    }
-  }
-  // dedupe by question number (last wins)
-  const map = new Map<number, PdfKeyEntry>();
-  for (const k of out) map.set(k.no, k);
-  return [...map.values()].sort((a, b) => a.no - b.no);
-}
-
-type CellResult =
-  | { kind: "empty" }
-  | { kind: "entry"; entry: PdfKeyEntry }
-  | { kind: "invalid" };
-
-/** Interpret one key-grid cell (raw text) — option-number mapping applied here. */
-function parseCell(raw: string, optionNums: boolean): CellResult {
-  const t = raw.trim();
-  if (t === "") return { kind: "empty" };
-  if (/^bonus$/i.test(t)) {
-    return { kind: "entry", entry: { no: 0, answer: "", bonus: true } };
-  }
-  const parts = t
-    .split(/\s*(?:\/|,|[oO][rR]\b)\s*/)
-    .filter(Boolean);
-  if (parts.length > 1) {
-    const letters = [
-      ...new Set(parts.map((p) => p.toUpperCase())),
-    ].filter((p) => /^[A-D]$/.test(p));
-    if (letters.length > 1 && letters.length === parts.length) {
-      return { kind: "entry", entry: { no: 0, answer: letters[0], answers: letters } };
-    }
-    return { kind: "invalid" };
-  }
-  if (/^[A-Da-d]$/.test(t)) {
-    return { kind: "entry", entry: { no: 0, answer: t.toUpperCase() } };
-  }
-  if (optionNums && /^[1-4]$/.test(t)) {
-    return { kind: "entry", entry: { no: 0, answer: LETTERS[Number(t) - 1] } };
-  }
-  if (NUM_RE.test(t)) {
-    return { kind: "entry", entry: { no: 0, answer: t } };
-  }
-  return { kind: "invalid" };
-}
 
 interface SectionRowState {
   chapter: string; // "" = generic
@@ -128,20 +55,30 @@ const emptyRow = (): SectionRowState => ({
   end_page: "1",
 });
 
-export function PdfImportView({ nav }: { nav: NavController }) {
+export function PdfImportView({
+  nav,
+  initialPaper,
+}: {
+  nav: NavController;
+  initialPaper?: PaperRecord;
+}) {
   const syllabus = useLive("syllabus");
   const fileRef = useRef<HTMLInputElement>(null);
   const keyFileRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [blob, setBlob] = useState<Blob | null>(null);
-  const [numPages, setNumPages] = useState(0);
+  // Coming from the Papers library: the blob arrives in memory, no re-upload.
+  // App remounts this view with key={paper.id}, so lazy initializers are safe.
+  const [fileName, setFileName] = useState<string | null>(initialPaper?.name ?? null);
+  const [blob, setBlob] = useState<Blob | null>(initialPaper?.data ?? null);
+  const [numPages, setNumPages] = useState(initialPaper?.num_pages ?? 0);
   const [loading, setLoading] = useState(false);
 
   const [mode, setMode] = useState<"single" | "full">("single");
   const [subject, setSubject] = useState<Subject>("Physics");
   const [chapter, setChapter] = useState("");
   const [startPage, setStartPage] = useState("1");
-  const [endPage, setEndPage] = useState("1");
+  const [endPage, setEndPage] = useState(
+    initialPaper ? String(Math.min(5, initialPaper.num_pages)) : "1"
+  );
   const [totalQ, setTotalQ] = useState("10");
   const [firstQ, setFirstQ] = useState("1");
   const [duration, setDuration] = useState("10");
@@ -149,7 +86,11 @@ export function PdfImportView({ nav }: { nav: NavController }) {
   const [optionNums, setOptionNums] = useState(false);
   const [keyLater, setKeyLater] = useState(false);
   const [optHintDismissed, setOptHintDismissed] = useState(false);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() =>
+    initialPaper
+      ? `PDF test — ${initialPaper.name.replace(/\.pdf$/i, "").slice(0, 40)}`
+      : ""
+  );
   const [rows, setRows] = useState<Record<Subject, SectionRowState>>({
     Physics: { ...emptyRow(), first_q: "1", last_q: "25" },
     Chemistry: { ...emptyRow(), first_q: "26", last_q: "50" },
@@ -281,6 +222,32 @@ export function PdfImportView({ nav }: { nav: NavController }) {
       // persist immediately — a refresh before Start must not lose the file
       await kvSet("pdf-blob", file);
       toast.success(`Loaded ${doc.numPages} pages`);
+      // Papers library: keep the file so future imports skip the upload
+      try {
+        const existing = (await getAll("papers")).find(
+          (p) => p.name === file.name && p.size === file.size
+        );
+        if (existing) {
+          await put("papers", {
+            ...existing,
+            num_pages: doc.numPages,
+            last_used_at: Date.now(),
+            data: file,
+          });
+        } else {
+          await put("papers", {
+            id: uid(),
+            name: file.name,
+            size: file.size,
+            num_pages: doc.numPages,
+            added_at: Date.now(),
+            data: file,
+          });
+          toast.info("Saved to Papers library — reuse it anytime without re-uploading");
+        }
+      } catch {
+        // library save is best-effort — the test itself can still start
+      }
     } catch (e) {
       toast.error(`Could not read PDF: ${String(e)}`);
     } finally {
@@ -296,25 +263,14 @@ export function PdfImportView({ nav }: { nav: NavController }) {
     }
     setKeyLoading(true);
     try {
-      const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-      const buf = await file.arrayBuffer();
-      const doc = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
-      let text = "";
-      for (let p = 1; p <= doc.numPages; p++) {
-        const page = await doc.getPage(p);
-        const tc = await page.getTextContent();
-        text += tc.items.map((it) => ("str" in it ? it.str : "")).join(" ") + "\n";
-        if (text.length > 400_000) break; // safety cap
-      }
-      doc.destroy();
-      const parsed = parseAnswerKey(text.slice(0, 400_000));
+      const text = await extractKeyTextFromPdf(file);
+      const parsed = parseAnswerKey(text);
       if (parsed.length < 2) {
         toast.error("No readable text — this key looks scanned. Paste it instead.");
         return;
       }
       setKeyFileName(file.name);
-      setKeyText(text.slice(0, 400_000)); // fills grid via the paste effect
+      setKeyText(text); // fills grid via the paste effect
       toast.success(`${parsed.length} keys extracted from key PDF`);
     } catch (e) {
       toast.error(`Could not read key PDF: ${String(e)}`);
@@ -446,6 +402,14 @@ export function PdfImportView({ nav }: { nav: NavController }) {
       q_entered_at: Date.now(),
     };
     await kvSet("pdf-blob", blob); // idempotent with the file-pick write
+    if (initialPaper) {
+      try {
+        const fresh = await (await import("@/lib/idb")).get("papers", initialPaper.id);
+        if (fresh) await put("papers", { ...fresh, last_used_at: Date.now() });
+      } catch {
+        // usage stamp is best-effort
+      }
+    }
     nav.startSession(session, blob);
   }
 
@@ -460,7 +424,10 @@ export function PdfImportView({ nav }: { nav: NavController }) {
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="space-y-6">
-          <SectionCard title="1 · Upload PDF" subtitle="stays local — never uploaded anywhere">
+          <SectionCard
+            title="1 · Upload PDF"
+            subtitle="stays local — never uploaded anywhere · every PDF is auto-saved to the Papers library for reuse"
+          >
             <input
               ref={fileRef}
               type="file"
@@ -476,16 +443,34 @@ export function PdfImportView({ nav }: { nav: NavController }) {
               className="w-full border-2 border-dashed border-stone-300 rounded-xl px-6 py-10 text-center hover:border-emerald-500 hover:bg-emerald-50/40 transition-colors"
             >
               <div className="text-sm font-medium text-stone-700">
-                {loading ? "Reading PDF…" : fileName ? `✓ ${fileName}` : "Click to choose a PDF file"}
+                {loading
+                  ? "Reading PDF…"
+                  : fileName
+                    ? `✓ ${fileName}`
+                    : "Click to choose a PDF file"}
               </div>
               {numPages > 0 ? (
-                <div className="text-xs text-stone-400 mt-1">{numPages} pages detected</div>
+                <div className="text-xs text-stone-400 mt-1">
+                  {numPages} pages detected
+                  {initialPaper ? " · loaded from Papers library" : " · saved to Papers library"}
+                </div>
               ) : (
                 <div className="text-xs text-stone-400 mt-1">
                   rendered locally with pdf.js — no upload
                 </div>
               )}
             </button>
+            <p className="text-[11px] text-stone-400 mt-2">
+              Already uploaded this paper?{" "}
+              <button
+                type="button"
+                className="underline text-emerald-700 hover:text-emerald-800"
+                onClick={() => nav.go("papers")}
+              >
+                Pick it from the Papers library
+              </button>{" "}
+              — no re-upload needed.
+            </p>
           </SectionCard>
 
           <SectionCard

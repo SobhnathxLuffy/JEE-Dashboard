@@ -154,3 +154,27 @@ Work Log:
 Stage Summary:
 - All 6 sprints (A-F, 35+ items) implemented and browser-verified; PLAN.md acceptance checklist ticked
 - Remaining known limits: key-later questions render numerical input only (no type info without key); preview server needs platform supervision (sandbox reaps background processes)
+
+---
+Task ID: 7
+Agent: main (Super Z)
+Task: 4 user-requested upgrades — detailed Performance tab, post-test answer-key upload, full answer contents in review, Papers library (store PDFs, re-import without re-upload).
+
+Work Log:
+- lib/pdf-key.ts (NEW): parseAnswerKey/parseCell/LETTERS/NUM_RE moved out of PdfImport; entryAccepted/entryIsLetter/checkPdfAnswer/keyDisplay moved out of Player (single scoring source of truth); + paperRangeOf(meta), extractKeyTextFromPdf(file) (shared key-PDF text-layer reader), applyLateKey(testId, key, tol) — re-scores every response in place with the exact submit-path rules (attempted+entry→check; missing entry→null=0; bonus→+4; letters case-insensitive; numeric ±tol+1e-9), updates correct_answer/type/options, rewrites pdf_meta {key, tolerance, key_later:false}, returns {score, max, scoredRows}.
+- idb.ts: DB_VERSION 1→2, "papers" store added (StoreValueMap: PaperRecord) — v1 installs upgrade in place via the existing create-if-missing loop.
+- types.ts: PaperRecord {id, name, size, num_pages, added_at, last_used_at?, data: Blob}.
+- PdfImport.tsx: consumes shared lib; new props initialPaper/clearInitialPaper (lazy state init from library paper; App remounts via key=paper.id); onFile auto-saves to papers store (upsert by name+size, dedupe-safe) with "Saved to Papers library" toast; startTest stamps last_used_at; upload card shows "saved to Papers library"/"loaded from Papers library" + "Pick it from the Papers library" link.
+- Papers.tsx (NEW): library cards (name/pages/size/added/last-used, storage.estimate footprint), Import test → nav.importPaper, Download (objectURL), Rename (Dialog, id=paper-name), Delete (AlertDialog — tests keep results), empty state.
+- App.tsx: ViewName + NAV += papers/performance; NavController.importPaper(p); paperForImport state → PdfImportView key+initialPaper; PerformanceView/PapersView mounted.
+- Results.tsx: AnswerBits replaces the old You/Correct spans (option TEXTS both sides for bank MCQs "(B) 4 m/s²", letters for pdf rows, raw values ±tolerance for NUM, "—" when key pending); late-key card (amber "Add answer key & score" when key_later or key empty; "Replace answer key" outline on scored pdf tests) → Dialog with paste textarea + key-PDF upload + (1)-(4) option-nums switch + tolerance + grid over paperRangeOf (cap 300) + coverage badge → applyLateKey; dialog pre-fills existing key + stored tolerance for the replace flow; missing-key confirm before apply.
+- shared.tsx: SectionCard title widened to ReactNode; AnswerBits component (shared by Results + Performance).
+- Performance.tsx (NEW): Subject Select → Chapter Select cascade (chapter locked until subject picked; options = syllabus ∪ chapters seen in responses); 5 StatCards; ComposedChart accuracy%/attempted per test; LineChart score timeline (% of max when unfiltered, subject raw marks when subject filter on — honest labeling since max is whole-paper); chapter-accuracy bars (green≥70/amber≥40/red, 70/40 reference lines, top-12 weakest first); "Every test score" table (all tests unfiltered; in-scope attempts + accuracy when filtered; click → results); "What went wrong" list (wrong rows newest-first cap 60, AnswerBits, tag chip, note, Open review).
+- DataView.tsx: papers base64-embedded in exports (60MB cap, papers_included/papers_note in _meta), validateRows papers-shape (id + data: dataURL), import converts dataURL→Blob via fetch, papers count in stats grid.
+- Player.tsx: key helpers now imported from lib/pdf-key (dedupe only, zero behavior change).
+- Browser E2E (agent-browser, wiped after): keyless-drill.pdf upload → auto-saved to Papers → key-later test (4Q, answered B/C/0.25/A) → submit pending → "Add answer key & score" → paste "1. B/2. A/3. 0.25/4. A" → grid auto-filled → Apply → score 11/16 EXACT (+4,−1,+4,+4), self-mark banner gone, card flips to "Replace answer key", review shows You: C / Correct: A and You: 0.25 / Correct: 0.25 with type upgraded to MCQ; Papers tab lists paper (1 paper · 2 KB · storage estimate) → Import test → PDF Test preloaded "loaded from Papers library" (no upload); demo CBT 2Q → review shows "You: (A) 2 m/s² / Correct: (B) 4 m/s²" (found + fixed asymmetry: You side now includes option text); Performance: all-subject stats 67%/2 wrong → Physics → Kinematics drill-down (1 Q, 1 wrong, table narrows, timeline flips to subject raw marks), wrong list shows both wrongs with answers + Open review jump works; export → _meta papers_included:1, data:application/pdf;base64,JVBERi0… → re-import merges "papers: 1"; rename OK; 390px viewport: no h-scroll on either new view; console/page errors: zero.
+- Cleanup: wiped test data after verification (fresh handoff).
+
+Stage Summary:
+- All 4 requested features live and E2E-verified; lint 0 / tsc 0 / GET 200 / dev.log clean.
+- Design decisions: applyLateKey reuses submit-path semantics exactly (missing key entry scores 0 not −1, bonus +4 for all); replace-key allowed on already-scored pdf tests (same code path, dialog pre-filled); papers export capped at 60MB base64 (documented in _meta.papers_note); chapter filter intentionally locked until a subject is picked (cross-subject chapter names would blur scope).

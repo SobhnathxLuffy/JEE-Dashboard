@@ -18,6 +18,18 @@ import {
 import { buildDemoQuestions } from "@/lib/demo-questions";
 import { SYLLABUS_SEED } from "@/lib/syllabus-seed";
 
+/** Papers (PDF blobs) are base64-packed into the JSON up to this total size. */
+const PAPERS_EXPORT_CAP = 60 * 1024 * 1024;
+
+function blobToDataUrl(b: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(b);
+  });
+}
+
 /** Every row must be an object with a usable key before anything is written. */
 function validateRows(store: StoreName, rows: unknown[]): void {
   for (let i = 0; i < rows.length; i++) {
@@ -29,6 +41,13 @@ function validateRows(store: StoreName, rows: unknown[]): void {
     if (store === "kv") {
       if (typeof rec.key !== "string" || rec.key === "") {
         throw new Error(`${store}[${i}] is missing a string "key"`);
+      }
+    } else if (store === "papers") {
+      if (typeof rec.id !== "string" || rec.id === "") {
+        throw new Error(`papers[${i}] is missing a string "id"`);
+      }
+      if (typeof rec.data !== "string" || !rec.data.startsWith("data:")) {
+        throw new Error(`papers[${i}] has no base64 PDF payload`);
       }
     } else if (typeof rec.id !== "string" || rec.id === "") {
       throw new Error(`${store}[${i}] is missing a string "id"`);
@@ -43,6 +62,7 @@ export function DataView() {
   const syllabus = useLive("syllabus");
   const formula = useLive("formula");
   const daily = useLive("daily_log");
+  const papers = useLive("papers");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function exportAll() {
@@ -52,22 +72,45 @@ export function DataView() {
       const excluded = kvRows
         .filter((r) => r.value instanceof Blob)
         .map((r) => r.key);
+      // papers: base64-embed the PDFs (capped) so the library survives a backup
+      const paperRows = await getAll("papers");
+      const totalPaperBytes = paperRows.reduce((a, p) => a + (p.size || 0), 0);
+      const paperOut: Record<string, unknown>[] = [];
+      let papersSkipped = 0;
+      if (totalPaperBytes <= PAPERS_EXPORT_CAP) {
+        for (const p of paperRows) {
+          try {
+            paperOut.push({ ...p, data: await blobToDataUrl(p.data) });
+          } catch {
+            papersSkipped += 1;
+          }
+        }
+      } else {
+        papersSkipped = paperRows.length;
+      }
       const data: Record<string, unknown> = {
         _meta: {
           app: "jee-study-app",
           version: 1,
           exported_at: new Date().toISOString(),
           pdf_blob_included: false,
+          papers_included: paperOut.length,
           note:
             excluded.length > 0
               ? `pdf blob not included (kv entries with binary values skipped): ${excluded.join(", ")}`
               : "pdf blob not included (kv entries with binary values are always skipped)",
+          papers_note:
+            papersSkipped > 0
+              ? `${papersSkipped} paper(s) skipped — papers total exceeds the ${Math.round(PAPERS_EXPORT_CAP / 1048576)} MB backup cap`
+              : "papers embedded as base64",
         },
       };
       for (const s of STORES) {
+        if (s === "papers") continue; // handled above (base64-embedded)
         data[s] =
           s === "kv" ? kvRows.filter((r) => !(r.value instanceof Blob)) : await getAll(s);
       }
+      data.papers = paperOut;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -123,8 +166,20 @@ export function DataView() {
     try {
       let total = 0;
       for (const { store, rows } of toWrite) {
-        await bulkPut(store, rows as never[]);
-        total += rows.length;
+        if (store === "papers") {
+          // base64 payload → Blob again
+          const asRows = await Promise.all(
+            (rows as { data: string }[]).map(async (r) => ({
+              ...r,
+              data: await (await fetch(r.data)).blob(),
+            }))
+          );
+          await bulkPut("papers", asRows as never[]);
+          total += asRows.length;
+        } else {
+          await bulkPut(store, rows as never[]);
+          total += rows.length;
+        }
       }
       toast.success(
         total === 0
@@ -171,13 +226,15 @@ export function DataView() {
               <span>syllabus: <strong>{syllabus.length}</strong></span>
               <span>formula: <strong>{formula.length}</strong></span>
               <span>daily logs: <strong>{daily.length}</strong></span>
+              <span>papers: <strong>{papers.length}</strong></span>
             </div>
             <Button onClick={exportAll} className="bg-emerald-700 hover:bg-emerald-800">
               Export JSON backup
             </Button>
             <p className="text-[11px] text-stone-400">
-              The stored question-PDF blob is binary — it is excluded from backups (marked in
-              _meta). Re-attach a PDF when you start a new PDF test.
+              Papers-library PDFs are embedded in the backup as base64 (up to 60 MB total). The
+              transient in-test PDF blob is still excluded — re-attach a PDF only if a test was
+              running when you backed up.
             </p>
             <input
               ref={fileRef}

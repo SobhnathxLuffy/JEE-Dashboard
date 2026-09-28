@@ -113,7 +113,7 @@ export function SectionCard({
   action,
   className,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
   action?: React.ReactNode;
@@ -139,6 +139,86 @@ export function EmptyNote({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-sm text-stone-400 border border-dashed border-stone-200 rounded-lg px-4 py-6 text-center">
       {children}
+    </div>
+  );
+}
+
+// ─── Answer comparison — what MY answer contained vs what the key contained ──
+const ANSWER_LETTERS = ["A", "B", "C", "D"];
+
+export function AnswerBits({
+  selected,
+  correctAnswer,
+  type,
+  options,
+  isPdf,
+  tolerance,
+  attempted,
+}: {
+  selected: number | string | null;
+  correctAnswer: number | string;
+  type: "MCQ" | "numerical";
+  options?: string[];
+  isPdf: boolean;
+  tolerance?: number;
+  attempted: boolean;
+}) {
+  const letterOf = (v: number | string | null) => {
+    const i = Number(v);
+    return Number.isInteger(i) && i >= 0 && i < 4 ? ANSWER_LETTERS[i] : String(v);
+  };
+  const num = type === "numerical";
+  const keyPending = String(correctAnswer) === "?" || String(correctAnswer) === "";
+
+  // what I answered, verbatim — option text included when the paper provides it
+  let mine = "—";
+  if (attempted && selected !== null && selected !== undefined) {
+    if (num) {
+      mine = String(selected);
+    } else {
+      const idx = Number(selected);
+      const hasText =
+        !isPdf && Array.isArray(options) && options.length === 4;
+      mine =
+        hasText && Number.isInteger(idx) && idx >= 0 && idx < 4
+          ? `(${ANSWER_LETTERS[idx]}) ${options[idx]}`
+          : letterOf(selected);
+    }
+  }
+
+  // what the correct answer contained, verbatim
+  let theirs = "—";
+  if (!keyPending) {
+    if (num) {
+      theirs = String(correctAnswer);
+    } else {
+      const idx = Number(correctAnswer);
+      const hasText = !isPdf && Array.isArray(options) && options.length === 4;
+      theirs =
+        hasText && Number.isInteger(idx) && idx >= 0 && idx < 4
+          ? `(${ANSWER_LETTERS[idx]}) ${options[idx]}`
+          : isPdf
+            ? String(correctAnswer) // "B" or "B/C" multi-answer key
+            : letterOf(correctAnswer);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <span className={attempted && mine !== "—" ? "text-stone-600" : "text-stone-400"}>
+        You:{" "}
+        <strong className="break-all" title={mine}>
+          {mine}
+          {!attempted ? " (skipped)" : ""}
+        </strong>
+      </span>
+      <span className={keyPending ? "text-stone-400" : "text-emerald-700"}>
+        Correct:{" "}
+        <strong className="break-all" title={theirs}>
+          {theirs}
+          {num && !keyPending && tolerance && tolerance > 0 ? ` (±${tolerance})` : ""}
+        </strong>
+      </span>
     </div>
   );
 }

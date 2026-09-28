@@ -4,10 +4,13 @@
 // Sprint D review side: paper-numbered questions + subject chips + next-untagged
 // jump (D3), retry-wrong as a new CBT session (D1), key-later self-mark with
 // live score recompute (D4), per-question notes (D7) and solution photos (D8).
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -19,10 +22,17 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
 import { useLive, put, get, getAll } from "@/lib/idb";
 import { marksFor } from "@/lib/scoring";
 import { fileToDataUrl } from "@/lib/image";
+import {
+  applyLateKey,
+  extractKeyTextFromPdf,
+  paperRangeOf,
+  parseAnswerKey,
+  parseCell,
+} from "@/lib/pdf-key";
 import {
   ERROR_TAGS,
   SUBJECTS,
@@ -31,6 +41,7 @@ import {
   uid,
   type ActiveSession,
   type ErrorTag,
+  type PdfKeyEntry,
   type ResponseRecord,
   type Subject,
 } from "@/lib/types";
@@ -43,6 +54,8 @@ const TAG_CLS: Record<ErrorTag, string> = {
   T: "bg-violet-100 text-violet-700 border-violet-200",
   G: "bg-stone-200 text-stone-700 border-stone-300",
 };
+
+const LK_MAX_CELLS = 300; // grid render cap inside the late-key dialog
 
 type StatusFilter = "all" | "wrong" | "untagged";
 type SubjectFilter = "all" | Subject;
@@ -61,6 +74,131 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
   // D7: first-save toast bookkeeping (per response, this visit)
   const notedOnceRef = useRef<Set<string>>(new Set());
 
+  const test = useMemo(() => tests.find((t) => t.id === testId), [tests, testId]);
+
+  // ── late answer-key upload: paste / key-PDF / grid → full re-score ──
+  const [lkOpen, setLkOpen] = useState(false);
+  const [lkText, setLkText] = useState("");
+  const [lkGrid, setLkGrid] = useState<Record<number, string>>({});
+  const [lkOptionNums, setLkOptionNums] = useState(false);
+  const [lkTol, setLkTol] = useState("0");
+  const [lkBusy, setLkBusy] = useState(false);
+  const [lkFileName, setLkFileName] = useState<string | null>(null);
+  const lkKeyFileRef = useRef<HTMLInputElement>(null);
+  const lkEditedRef = useRef<Set<number>>(new Set());
+
+  const lkParsed = useMemo(() => parseAnswerKey(lkText), [lkText]);
+  const lkRange = test?.pdf_meta ? paperRangeOf(test.pdf_meta) : null;
+  const lkNos = useMemo(() => {
+    if (!lkRange) return [];
+    const out: number[] = [];
+    for (let n = lkRange.first; n <= lkRange.last; n++) out.push(n);
+    return out;
+  }, [lkRange]);
+  const lkRenderCells = lkNos.slice(0, LK_MAX_CELLS);
+
+  // paste/key-PDF parse → bulk-fill the grid (hand-typed cells always win)
+  useEffect(() => {
+    if (lkParsed.length === 0) return;
+    setLkGrid((g) => {
+      const next = { ...g };
+      for (const k of lkParsed) {
+        if (lkEditedRef.current.has(k.no)) continue;
+        next[k.no] = k.bonus ? "bonus" : k.answers ? k.answers.join("/") : k.answer;
+      }
+      return next;
+    });
+  }, [lkParsed]);
+
+  const lkGridKey = useMemo(() => {
+    const out: PdfKeyEntry[] = [];
+    for (const no of lkNos) {
+      const raw = lkGrid[no];
+      if (raw === undefined) continue;
+      const r = parseCell(raw, lkOptionNums);
+      if (r.kind === "entry") out.push({ ...r.entry, no });
+    }
+    return out;
+  }, [lkNos, lkGrid, lkOptionNums]);
+
+  const lkMissing = useMemo(() => {
+    const have = new Set(lkGridKey.map((k) => k.no));
+    return lkNos.filter((no) => !have.has(no));
+  }, [lkGridKey, lkNos]);
+
+  function setLkCell(no: number, raw: string) {
+    lkEditedRef.current.add(no);
+    setLkGrid((g) => {
+      const next = { ...g };
+      if (raw.trim() === "") delete next[no];
+      else next[no] = raw;
+      return next;
+    });
+  }
+
+  function openLateKey() {
+    if (!test?.pdf_meta) return;
+    // prefill: existing key (replace flow) + stored tolerance
+    const g: Record<number, string> = {};
+    for (const k of test.pdf_meta.key) {
+      g[k.no] = k.bonus ? "bonus" : k.answers ? k.answers.join("/") : k.answer;
+    }
+    lkEditedRef.current = new Set();
+    setLkGrid(g);
+    setLkText("");
+    setLkFileName(null);
+    setLkOptionNums(false);
+    setLkTol(String(test.pdf_meta.tolerance ?? 0));
+    setLkOpen(true);
+  }
+
+  async function onLkKeyFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await extractKeyTextFromPdf(file);
+      const parsed = parseAnswerKey(text);
+      if (parsed.length < 2) {
+        toast.error("No readable text — this key looks scanned. Paste it instead.");
+        return;
+      }
+      setLkFileName(file.name);
+      setLkText(text);
+      toast.success(`${parsed.length} keys extracted from key PDF`);
+    } catch (err) {
+      toast.error(`Could not read key PDF: ${String(err)}`);
+    }
+  }
+
+  async function applyLkKey() {
+    if (!test) return;
+    if (lkGridKey.length === 0) {
+      toast.error("The key grid is empty — paste the key, upload a key PDF, or fill cells");
+      return;
+    }
+    if (lkMissing.length > 0) {
+      const ok = window.confirm(
+        `${lkMissing.length} of ${lkNos.length} questions have no key (${lkMissing
+          .slice(0, 8)
+          .join(", ")}${lkMissing.length > 8 ? "…" : ""}). They score 0 — attempted or not. Apply anyway?`
+      );
+      if (!ok) return;
+    }
+    setLkBusy(true);
+    try {
+      const res = await applyLateKey(test.id, lkGridKey, Number(lkTol) || 0);
+      setLkOpen(false);
+      toast.success(
+        `Key applied — ${res.scoredRows} answer${res.scoredRows === 1 ? "" : "s"} re-checked, score ${res.score}/${res.max}`
+      );
+    } catch (err) {
+      toast.error(`Could not apply the key: ${String(err)}`);
+    } finally {
+      setLkBusy(false);
+    }
+  }
+
   // D8: shared photo file input + full-size viewer dialog
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoTargetRef = useRef<string | null>(null);
@@ -68,7 +206,6 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
     null
   );
 
-  const test = useMemo(() => tests.find((t) => t.id === testId), [tests, testId]);
   const rows = useMemo(() => {
     const own = responses.filter((r) => r.test_id === testId);
     // review reads in paper/test order — q_no is the stored number, position is the fallback
@@ -365,6 +502,49 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
         </div>
       ) : null}
 
+      {/* late answer-key upload — gave the test before having the key? score it now */}
+      {test.pdf_meta ? (
+        <div
+          className={cn(
+            "rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap border",
+            test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+              ? "bg-amber-50 border-amber-200"
+              : "bg-white border-stone-200"
+          )}
+        >
+          <Button
+            onClick={openLateKey}
+            className={cn(
+              "min-h-[44px] px-5 font-semibold",
+              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+                ? "bg-emerald-700 hover:bg-emerald-800"
+                : ""
+            )}
+            variant={
+              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+                ? "default"
+                : "outline"
+            }
+          >
+            {test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+              ? "Add answer key & score"
+              : "Replace answer key"}
+          </Button>
+          <p
+            className={cn(
+              "text-xs min-w-0 flex-1",
+              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+                ? "text-amber-800"
+                : "text-stone-500"
+            )}
+          >
+            {test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+              ? "Gave the test without a key? Paste or upload the official key NOW — every answer gets re-checked and scored automatically. No self-marking needed."
+              : "Paste a corrected key and the whole test is re-scored in place."}
+          </p>
+        </div>
+      ) : null}
+
       {stats.untagged > 0 ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
           <span>
@@ -496,25 +676,16 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                         )}
                       </div>
                       <p className="text-sm text-stone-800">{r.question_snippet}</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-1.5">
-                        <span className={r.correct === true ? "text-emerald-700" : "text-red-600"}>
-                          You:{" "}
-                          <strong>
-                            {r.attempted
-                              ? r.type === "MCQ"
-                                ? ["A", "B", "C", "D"][Number(r.selected)] ?? String(r.selected)
-                                : String(r.selected)
-                              : "—"}
-                          </strong>
-                        </span>
-                        <span className="text-emerald-700">
-                          Correct:{" "}
-                          <strong>
-                            {r.type === "MCQ"
-                              ? ["A", "B", "C", "D"][Number(r.correct_answer)] ?? String(r.correct_answer)
-                              : String(r.correct_answer)}
-                          </strong>
-                        </span>
+                      <div className="mt-1.5">
+                        <AnswerBits
+                          selected={r.selected}
+                          correctAnswer={r.correct_answer}
+                          type={r.type}
+                          options={r.options}
+                          isPdf={r.question_id.startsWith("pdf:")}
+                          tolerance={test.pdf_meta?.tolerance ?? 0}
+                          attempted={r.attempted}
+                        />
                       </div>
 
                       {/* D7: one-line note (optional, blur-save) */}
@@ -661,6 +832,145 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
               onClick={() => viewPhoto && void removePhoto(viewPhoto.id)}
             >
               Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── late answer-key dialog: paste / key-PDF / grid → re-score ── */}
+      <Dialog open={lkOpen} onOpenChange={(o) => !lkBusy && setLkOpen(o)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Answer key — after the test</DialogTitle>
+            <DialogDescription>
+              Paste the official key, upload a digital key PDF, or type into the grid. Applying it
+              re-checks every answer of this test against the same rules as live scoring
+              (+4 / −1, multi-answer keys, bonus questions, ±tolerance).
+            </DialogDescription>
+          </DialogHeader>
+
+          <Textarea
+            value={lkText}
+            onChange={(e) => setLkText(e.target.value)}
+            rows={5}
+            placeholder={"1. A\n2. C\n7. B or C\n9. bonus\n5. 42"}
+            className="font-mono text-sm"
+          />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={lkKeyFileRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => void onLkKeyFile(e)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => lkKeyFileRef.current?.click()}
+            >
+              {lkFileName
+                ? `✓ Key PDF: ${lkFileName.slice(0, 28)}`
+                : "Upload answer-key PDF (digital)"}
+            </Button>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="lk-opt-nums"
+                checked={lkOptionNums}
+                onCheckedChange={setLkOptionNums}
+                aria-label="Key uses option numbers 1 to 4"
+              />
+              <Label htmlFor="lk-opt-nums" className="text-xs cursor-pointer">
+                Key uses option numbers (1)–(4)
+              </Label>
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <Label htmlFor="lk-tol" className="text-xs whitespace-nowrap">
+                Tolerance ±
+              </Label>
+              <Input
+                id="lk-tol"
+                value={lkTol}
+                onChange={(e) => setLkTol(e.target.value)}
+                inputMode="decimal"
+                className="h-8 w-20 text-xs"
+              />
+            </div>
+          </div>
+
+          {/* key grid over the paper range */}
+          {lkRenderCells.length > 0 ? (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-emerald-700 hover:bg-emerald-700 text-white border-0">
+                  {lkGridKey.length} key{lkGridKey.length === 1 ? "" : "s"} in grid
+                </Badge>
+                {lkMissing.length === 0 ? (
+                  <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                    full coverage of Q{lkRange?.first}–{lkRange?.last}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+                    missing: {lkMissing.slice(0, 10).join(", ")}
+                    {lkMissing.length > 10 ? ` +${lkMissing.length - 10}` : ""}
+                  </Badge>
+                )}
+                {lkNos.length > LK_MAX_CELLS ? (
+                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+                    showing first {LK_MAX_CELLS} cells
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5 max-h-64 overflow-y-auto p-0.5">
+                {lkRenderCells.map((no) => {
+                  const raw = lkGrid[no] ?? "";
+                  const res = raw.trim() === "" ? null : parseCell(raw, lkOptionNums);
+                  const invalid = res !== null && res.kind === "invalid";
+                  return (
+                    <div key={no} className="space-y-0.5">
+                      <div
+                        className={cn(
+                          "text-[10px] leading-none",
+                          invalid ? "text-red-500 font-semibold" : "text-stone-400"
+                        )}
+                      >
+                        Q{no}
+                      </div>
+                      <Input
+                        value={raw}
+                        onChange={(e) => setLkCell(no, e.target.value)}
+                        className={cn(
+                          "h-8 text-xs font-mono px-1.5 text-center",
+                          invalid && "border-red-400 focus-visible:ring-red-300"
+                        )}
+                        aria-label={`Key for question ${no}`}
+                        placeholder="—"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <EmptyNote>
+              This test has no question range on record — paste the key above and the parsed
+              entries will show up here.
+            </EmptyNote>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" disabled={lkBusy} onClick={() => setLkOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-700 hover:bg-emerald-800"
+              disabled={lkBusy || lkGridKey.length === 0}
+              onClick={() => void applyLkKey()}
+            >
+              {lkBusy ? "Scoring…" : `Apply key & score (${lkGridKey.length})`}
             </Button>
           </DialogFooter>
         </DialogContent>

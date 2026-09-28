@@ -33,7 +33,7 @@ import {
   useLive,
 } from "@/lib/idb";
 import { SYLLABUS_SEED } from "@/lib/syllabus-seed";
-import type { ActiveSession, TestRecord } from "@/lib/types";
+import type { ActiveSession, PaperRecord, TestRecord } from "@/lib/types";
 import { todayStr } from "@/lib/types";
 import { northStar } from "@/lib/analytics";
 
@@ -43,6 +43,8 @@ import { TestCreateView, type TestCreatePrefill } from "./TestCreate";
 import { PlayerView } from "./Player";
 import { ResultsView } from "./Results";
 import { PdfImportView } from "./PdfImport";
+import { PapersView } from "./Papers";
+import { PerformanceView } from "./Performance";
 import { ExternalLogView } from "./ExternalLog";
 import { SyllabusView } from "./Syllabus";
 import { FormulaView } from "./FormulaSheet";
@@ -53,7 +55,9 @@ export type ViewName =
   | "bank"
   | "test"
   | "pdf"
+  | "papers"
   | "external"
+  | "performance"
   | "syllabus"
   | "formula"
   | "data"
@@ -64,8 +68,10 @@ const NAV: { id: ViewName; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "test", label: "New CBT" },
   { id: "pdf", label: "PDF Test" },
+  { id: "papers", label: "Papers" },
   { id: "external", label: "Log External" },
   { id: "bank", label: "Question Bank" },
+  { id: "performance", label: "Performance" },
   { id: "syllabus", label: "Syllabus" },
   { id: "formula", label: "Formula Sheet" },
   { id: "data", label: "Data" },
@@ -82,6 +88,8 @@ export interface NavController {
   startSession: (s: ActiveSession, pdfBlob?: Blob | null) => void;
   /** open TestCreate with an optional subject/chapter preselected (action-linked analytics) */
   toTestCreate: (prefill?: TestCreatePrefill) => void;
+  /** open PDF Test pre-loaded with a stored paper (no re-upload) */
+  importPaper: (p: PaperRecord) => void;
 }
 
 export function AppRoot() {
@@ -90,6 +98,7 @@ export function AppRoot() {
   const [resumable, setResumable] = useState<ActiveSession | null>(null);
   const [resultsTestId, setResultsTestId] = useState<string | null>(null);
   const [testPrefill, setTestPrefill] = useState<TestCreatePrefill | undefined>(undefined);
+  const [paperForImport, setPaperForImport] = useState<PaperRecord | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pdfBlobRef = useRef<Blob | null>(null);
   const seededRef = useRef(false);
@@ -223,9 +232,18 @@ export function AppRoot() {
     [applyView]
   );
 
+  // Papers library → PDF Test with the blob already in hand (no re-upload)
+  const importPaper = useCallback(
+    (p: PaperRecord) => {
+      setPaperForImport(p);
+      applyView("pdf");
+    },
+    [applyView]
+  );
+
   const star = northStar(tests, responses);
 
-  const nav: NavController = { go, openResults, startSession, toTestCreate };
+  const nav: NavController = { go, openResults, startSession, toTestCreate, importPaper };
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-50">
@@ -318,7 +336,15 @@ export function AppRoot() {
         {view === "results" && resultsTestId ? (
           <ResultsView testId={resultsTestId} nav={nav} />
         ) : null}
-        {view === "pdf" ? <PdfImportView nav={nav} /> : null}
+        {view === "pdf" ? (
+          <PdfImportView
+            key={paperForImport ? `pdf-${paperForImport.id}` : "pdf-blank"}
+            nav={nav}
+            initialPaper={paperForImport ?? undefined}
+          />
+        ) : null}
+        {view === "papers" ? <PapersView nav={nav} /> : null}
+        {view === "performance" ? <PerformanceView nav={nav} /> : null}
         {view === "external" ? <ExternalLogView nav={nav} /> : null}
         {view === "syllabus" ? <SyllabusView /> : null}
         {view === "formula" ? <FormulaView nav={nav} /> : null}

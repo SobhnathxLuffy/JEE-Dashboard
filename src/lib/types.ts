@@ -180,6 +180,16 @@ export interface DailyLog {
   chapters: string; // editable "today's chapters" line
 }
 
+/** A to-do item (Dashboard to-do card + Calendar). Simple, local-first. */
+export interface Task {
+  id: string;
+  text: string;
+  done: boolean;
+  created_at: number;
+  done_at?: number;
+  due_date?: string; // YYYY-MM-DD, optional
+}
+
 /** In-progress test session (survives refresh via IndexedDB) */
 export interface ActiveSession {
   key: "active";

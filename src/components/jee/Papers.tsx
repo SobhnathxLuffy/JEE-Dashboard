@@ -31,7 +31,8 @@ import { toast } from "sonner";
 import type { NavController } from "./App";
 import { EmptyState, PageTitle } from "./shared";
 import { del, put, useLive } from "@/lib/idb";
-import type { PaperRecord } from "@/lib/types";
+import { uid, type PaperRecord } from "@/lib/types";
+import { FileDrop } from "./FileDrop";
 
 function fmtBytes(n: number): string {
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
@@ -123,6 +124,36 @@ export function PapersView({ nav }: { nav: NavController }) {
     toast.success("Paper removed from the library");
   }
 
+  // direct-to-library upload: store the PDF as a blob; page count via pdf.js
+  async function addPapers(files: File[]) {
+    let added = 0;
+    for (const file of files) {
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+        toast.error(`“${file.name}” is not a PDF — skipped`);
+        continue;
+      }
+      try {
+        const buf = await file.arrayBuffer();
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        const doc = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
+        const rec: PaperRecord = {
+          id: uid(),
+          name: file.name,
+          size: file.size,
+          num_pages: doc.numPages,
+          added_at: Date.now(),
+          data: new Blob([buf], { type: "application/pdf" }),
+        };
+        await put("papers", rec);
+        added += 1;
+      } catch {
+        toast.error(`Could not read “${file.name}” — is it a valid PDF?`);
+      }
+    }
+    if (added > 0) toast.success(`${added} paper${added === 1 ? "" : "s"} added to the library`);
+  }
+
   return (
     <div className="space-y-6">
       <PageTitle
@@ -133,6 +164,14 @@ export function PapersView({ nav }: { nav: NavController }) {
             + Upload a new PDF
           </Button>
         }
+      />
+
+      <FileDrop
+        accept="application/pdf,.pdf"
+        multiple
+        label="Drop PDF papers here to add them to the library"
+        hint="multiple files welcome · stored as-is in your browser · start a test from any of them later"
+        onFiles={(files) => void addPapers(files)}
       />
 
       {papers.length === 0 ? (

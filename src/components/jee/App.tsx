@@ -24,6 +24,7 @@ import {
   Library,
   ChartLine,
   ListTree,
+  CalendarDays,
   Sigma,
   Database,
   Sun,
@@ -70,6 +71,7 @@ import { PlayerView } from "./Player";
 import { ResultsView } from "./Results";
 import { PdfImportView } from "./PdfImport";
 import { PapersView } from "./Papers";
+import { CalendarView } from "./CalendarView";
 import { PerformanceView } from "./Performance";
 import { ExternalLogView } from "./ExternalLog";
 import { SyllabusView } from "./Syllabus";
@@ -85,6 +87,7 @@ export type ViewName =
   | "external"
   | "performance"
   | "syllabus"
+  | "calendar"
   | "formula"
   | "data"
   | "player"
@@ -99,6 +102,7 @@ const NAV: { id: ViewName; label: string; icon: LucideIcon }[] = [
   { id: "bank", label: "Question Bank", icon: Library },
   { id: "performance", label: "Performance", icon: ChartLine },
   { id: "syllabus", label: "Syllabus", icon: ListTree },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "formula", label: "Formula Sheet", icon: Sigma },
   { id: "data", label: "Data", icon: Database },
 ];
@@ -108,7 +112,7 @@ const NAV: { id: ViewName; label: string; icon: LucideIcon }[] = [
 const NAV_GROUPS: ViewName[][] = [
   ["dashboard"],
   ["test", "pdf", "papers", "external"],
-  ["bank", "performance", "syllabus", "formula"],
+  ["bank", "performance", "syllabus", "calendar", "formula"],
   ["data"],
 ];
 
@@ -419,6 +423,7 @@ export function AppRoot() {
             {view === "performance" ? <PerformanceView nav={nav} /> : null}
             {view === "external" ? <ExternalLogView nav={nav} /> : null}
             {view === "syllabus" ? <SyllabusView /> : null}
+            {view === "calendar" ? <CalendarView /> : null}
             {view === "formula" ? <FormulaView nav={nav} /> : null}
             {view === "data" ? <DataView /> : null}
           </motion.div>

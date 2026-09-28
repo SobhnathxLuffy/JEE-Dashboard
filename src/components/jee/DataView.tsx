@@ -5,6 +5,7 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { PageTitle, SectionCard } from "./shared";
+import { FileDrop } from "./FileDrop";
 import {
   STORES,
   bulkPut,
@@ -63,6 +64,7 @@ export function DataView() {
   const formula = useLive("formula");
   const daily = useLive("daily_log");
   const papers = useLive("papers");
+  const tasks = useLive("tasks");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function exportAll() {
@@ -227,6 +229,7 @@ export function DataView() {
               <span>formula: <strong>{formula.length}</strong></span>
               <span>daily logs: <strong>{daily.length}</strong></span>
               <span>papers: <strong>{papers.length}</strong></span>
+              <span>tasks: <strong>{tasks.length}</strong></span>
             </div>
             <Button onClick={exportAll} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
               Export JSON backup
@@ -245,6 +248,13 @@ export function DataView() {
                 const f = e.target.files?.[0];
                 if (f) void importAll(f);
               }}
+            />
+            <FileDrop
+              accept=".json,application/json"
+              label="Drop your backup .json here — or click to browse"
+              hint="merged into what you already have; nothing is deleted"
+              className="text-left"
+              onFiles={(files) => void importAll(files[0])}
             />
             <Button variant="outline" onClick={() => fileRef.current?.click()}>
               Import JSON (merge)

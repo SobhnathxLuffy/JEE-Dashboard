@@ -30,9 +30,10 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { EmptyNote, PageTitle, SectionCard, SubjectDot, TierBadge } from "./shared";
-import { useLive, put, del } from "@/lib/idb";
+import { useLive, put, del, bulkPut } from "@/lib/idb";
 import { fileToDataUrl } from "@/lib/image";
 import { SUBJECTS, uid, type Question, type Subject } from "@/lib/types";
+import { FileDrop } from "./FileDrop";
 
 const OPTION_LETTERS = ["A", "B", "C", "D"];
 
@@ -61,6 +62,8 @@ export function QuestionBankView() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const [figOver, setFigOver] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const chaptersForSubject = useMemo(
     () =>
@@ -196,10 +199,7 @@ export function QuestionBankView() {
     resetForm();
   }
 
-  async function onImageFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-picking the same file
-    if (!file) return;
+  async function onImageFile(file: File) {
     try {
       setImage(await fileToDataUrl(file, 800));
       toast.success("Figure attached");
@@ -240,11 +240,18 @@ export function QuestionBankView() {
         title="Question Bank"
         subtitle="Manual entry lives here. Bank questions feed the CBT player; chapter names come from the syllabus seed."
         right={
-          <Badge variant="outline" className="border-border text-muted-foreground">
-            {questions.length} questions
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setImportOpen((v) => !v)}>
+              Import JSON
+            </Button>
+            <Badge variant="outline" className="border-border text-muted-foreground">
+              {questions.length} questions
+            </Badge>
+          </div>
         }
       />
+
+      {importOpen ? <JsonImportPanel onClose={() => setImportOpen(false)} /> : null}
 
       <div className="grid lg:grid-cols-5 gap-6">
         {/* entry / edit form */}
@@ -377,8 +384,28 @@ export function QuestionBankView() {
               </div>
             )}
 
-            {/* D2b: optional figure */}
-            <div className="space-y-1.5">
+            {/* D2b: optional figure — drop an image file right onto the tile */}
+            <div
+              className={cn(
+                "space-y-1.5 rounded-lg p-1 -m-1 transition-colors",
+                figOver && "bg-primary/5 ring-2 ring-primary/20"
+              )}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("Files")) {
+                  e.preventDefault();
+                  setFigOver(true);
+                }
+              }}
+              onDragLeave={() => setFigOver(false)}
+              onDrop={(e) => {
+                const f = e.dataTransfer.files?.[0];
+                if (f && f.type.startsWith("image/")) {
+                  e.preventDefault();
+                  setFigOver(false);
+                  void onImageFile(f);
+                }
+              }}
+            >
               <Label className="text-xs">Figure (optional)</Label>
               {image ? (
                 <div className="flex items-center gap-2">
@@ -412,9 +439,15 @@ export function QuestionBankView() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => void onImageFile(e)}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = ""; // allow re-picking the same file
+                  if (f) void onImageFile(f);
+                }}
               />
-              <p className="text-[11px] text-muted-foreground/70">File picker or Ctrl+V paste · downscaled to 800px</p>
+              <p className="text-[11px] text-muted-foreground/70">
+                Drop an image here, use the file picker, or Ctrl+V paste · downscaled to 800px
+              </p>
             </div>
 
             {editingId ? (
@@ -602,5 +635,296 @@ export function QuestionBankView() {
         </SectionCard>
       </div>
     </div>
+  );
+}
+
+// ─── JSON bulk import ────────────────────────────────────────────────────────
+// Shape (also rendered inside the panel): an array of question objects, or
+// {"questions": [...]} — subject/chapter/type/question/options/answer are the
+// keys that matter; everything else is optional.
+
+const IMPORT_EXAMPLE = `[
+  {
+    "subject": "Physics",
+    "chapter": "Kinematics",
+    "type": "MCQ",
+    "question": "A car starts from rest and reaches 20 m/s in 5 s. Its acceleration is:",
+    "options": ["2 m/s²", "4 m/s²", "5 m/s²", "10 m/s²"],
+    "answer": 1,
+    "source": "NCERT Ch-3"
+  },
+  {
+    "subject": "Chemistry",
+    "chapter": "Some Basic Concepts of Chemistry (Mole Concept)",
+    "type": "numerical",
+    "question": "The number of moles in 44 g of CO2 is:",
+    "answer": 1,
+    "tolerance": 0.01
+  }
+]`;
+
+function normalizeSubject(v: unknown): Subject | null {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (s.startsWith("phy")) return "Physics";
+  if (s.startsWith("che")) return "Chemistry";
+  if (s.startsWith("mat")) return "Mathematics"; // math / maths / mathematics
+  return null;
+}
+
+function normalizeType(v: unknown): "MCQ" | "numerical" | null {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (s === "mcq" || s === "objective") return "MCQ";
+  if (["numerical", "num", "numeric", "integer"].includes(s)) return "numerical";
+  return null;
+}
+
+function parseQuestionsJson(raw: string): { ok: Question[]; errors: { row: number; msg: string }[] } {
+  const out: { ok: Question[]; errors: { row: number; msg: string }[] } = { ok: [], errors: [] };
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    out.errors.push({ row: 0, msg: `Invalid JSON — ${(e as Error).message}` });
+    return out;
+  }
+  if (data && !Array.isArray(data) && typeof data === "object") {
+    const qArr = (data as Record<string, unknown>)["questions"];
+    if (Array.isArray(qArr)) data = qArr;
+  }
+  if (!Array.isArray(data)) {
+    out.errors.push({ row: 0, msg: 'Top level must be an array of question objects (or {"questions": [...]})' });
+    return out;
+  }
+  const now = Date.now();
+  data.forEach((item, i) => {
+    const row = i + 1;
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      out.errors.push({ row, msg: "not a question object" });
+      return;
+    }
+    const q = item as Record<string, unknown>;
+    const subject = normalizeSubject(q.subject);
+    if (!subject) {
+      out.errors.push({ row, msg: `subject "${String(q.subject)}" must be Physics / Chemistry / Mathematics` });
+      return;
+    }
+    const chapter = String(q.chapter ?? "").trim();
+    if (!chapter) {
+      out.errors.push({ row, msg: "chapter is required" });
+      return;
+    }
+    const text = String(q.question ?? q.text ?? "").trim();
+    if (!text) {
+      out.errors.push({ row, msg: "question text is required" });
+      return;
+    }
+    const type = normalizeType(q.type);
+    if (!type) {
+      out.errors.push({ row, msg: `type "${String(q.type)}" must be MCQ or numerical` });
+      return;
+    }
+    let options: string[] = [];
+    let answer: number | string;
+    let tolerance = 0;
+    if (type === "MCQ") {
+      if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 6) {
+        out.errors.push({ row, msg: "MCQ needs an options array of 2-6 strings" });
+        return;
+      }
+      options = q.options.map((o) => String(o));
+      const ans: unknown = q.answer;
+      if (typeof ans === "number" && Number.isInteger(ans) && ans >= 0 && ans < options.length) {
+        answer = ans; // 0-based index (A=0, B=1, C=2, D=3)
+      } else if (typeof ans === "string" && /^[A-Fa-f]$/.test(ans.trim())) {
+        const idx = ans.trim().toUpperCase().charCodeAt(0) - 65;
+        if (idx >= options.length) {
+          out.errors.push({ row, msg: `answer "${ans}" out of range for ${options.length} options` });
+          return;
+        }
+        answer = idx;
+      } else if (typeof ans === "string" && ans.trim()) {
+        const idx = options.findIndex((o) => o.trim().toLowerCase() === ans.trim().toLowerCase());
+        if (idx === -1) {
+          out.errors.push({ row, msg: 'answer must be a 0-based index, a letter (A-D), or exact option text' });
+          return;
+        }
+        answer = idx;
+      } else {
+        out.errors.push({ row, msg: "answer must be the 0-based option index (A=0, B=1, ...)" });
+        return;
+      }
+    } else {
+      const num = typeof q.answer === "number" ? q.answer : parseFloat(String(q.answer ?? ""));
+      if (!Number.isFinite(num)) {
+        out.errors.push({ row, msg: "numerical answer must be a number" });
+        return;
+      }
+      answer = num;
+      if (q.tolerance !== undefined && q.tolerance !== "") {
+        const t = typeof q.tolerance === "number" ? q.tolerance : parseFloat(String(q.tolerance));
+        if (!Number.isFinite(t) || t < 0) {
+          out.errors.push({ row, msg: "tolerance must be a non-negative number" });
+          return;
+        }
+        tolerance = t;
+      }
+    }
+    const image = typeof q.image === "string" && q.image.startsWith("data:image") ? q.image : undefined;
+    out.ok.push({
+      id: uid(),
+      question: text,
+      options,
+      answer,
+      tolerance,
+      type,
+      subject,
+      chapter,
+      source: typeof q.source === "string" && q.source.trim() ? q.source.trim() : "JSON import",
+      source_url: typeof q.source_url === "string" && q.source_url.trim() ? q.source_url.trim() : undefined,
+      image,
+      created_at: now,
+    });
+  });
+  return out;
+}
+
+function JsonImportPanel({ onClose }: { onClose: () => void }) {
+  const [raw, setRaw] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const parsed = useMemo(() => (raw.trim() ? parseQuestionsJson(raw) : null), [raw]);
+
+  async function importAll() {
+    if (!parsed || parsed.ok.length === 0) return;
+    await bulkPut("questions", parsed.ok);
+    toast.success(`Imported ${parsed.ok.length} question${parsed.ok.length === 1 ? "" : "s"}`);
+    onClose();
+  }
+
+  return (
+    <SectionCard
+      title="Import questions from JSON"
+      subtitle="bulk-add questions with answers — drop a .json file or paste the contents"
+      action={
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      <div className="grid lg:grid-cols-2 gap-5">
+        <div className="space-y-3">
+          <FileDrop
+            accept=".json,application/json,text/plain"
+            label={fileName ? `Loaded: ${fileName}` : "Drop your .json file here — or click to browse"}
+            hint="UTF-8 JSON, up to a few thousand questions"
+            onFiles={async (files) => {
+              const f = files[0];
+              try {
+                const text = await f.text();
+                setRaw(text);
+                setFileName(f.name);
+              } catch {
+                toast.error("Could not read that file");
+              }
+            }}
+          />
+          <Textarea
+            value={raw}
+            onChange={(e) => {
+              setRaw(e.target.value);
+              setFileName(null);
+            }}
+            rows={8}
+            placeholder='…or paste JSON here — e.g. [{"subject":"Physics","chapter":"Kinematics","type":"MCQ","question":"…","options":["…"],"answer":1}]'
+            className="font-mono text-xs"
+            aria-label="Paste JSON"
+          />
+          {parsed ? (
+            <div className="text-sm space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-sage-600 dark:bg-sage-500 hover:bg-sage-600 dark:hover:bg-sage-500 text-white dark:text-sage-950 border-0">
+                  {parsed.ok.length} valid
+                </Badge>
+                {parsed.errors.length > 0 ? (
+                  <Badge variant="outline" className="border-red-300 text-red-700 dark:border-red-500/40 dark:text-red-300">
+                    {parsed.errors.length} skipped
+                  </Badge>
+                ) : null}
+                {parsed.ok.length > 0 ? (
+                  <Button size="sm" onClick={() => void importAll()}>
+                    Import {parsed.ok.length} question{parsed.ok.length === 1 ? "" : "s"}
+                  </Button>
+                ) : null}
+              </div>
+              {parsed.errors.length > 0 ? (
+                <ul className="text-xs text-red-600 dark:text-red-400 space-y-0.5 max-h-28 overflow-y-auto">
+                  {parsed.errors.slice(0, 8).map((e, i) => (
+                    <li key={i}>
+                      {e.row === 0 ? "—" : `row ${e.row}`} · {e.msg}
+                    </li>
+                  ))}
+                  {parsed.errors.length > 8 ? <li>…and {parsed.errors.length - 8} more</li> : null}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-foreground">Expected JSON shape</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(IMPORT_EXAMPLE)
+                  .then(() => toast.success("Example copied"))
+                  .catch(() => toast.error("Copy failed — select the text manually"));
+              }}
+            >
+              Copy example
+            </Button>
+          </div>
+          <pre className="text-[11px] leading-4 font-mono bg-muted/60 border border-border rounded-lg p-3 overflow-x-auto">
+{IMPORT_EXAMPLE}
+          </pre>
+          <ul className="text-[11px] text-muted-foreground space-y-1">
+            <li>
+              <code className="font-mono text-foreground">subject</code> — &quot;Physics&quot; / &quot;Chemistry&quot; /
+              &quot;Mathematics&quot; (math/maths also accepted) · <span className="text-foreground">required</span>
+            </li>
+            <li>
+              <code className="font-mono text-foreground">chapter</code> — any text; syllabus names auto-link where they
+              match · <span className="text-foreground">required</span>
+            </li>
+            <li>
+              <code className="font-mono text-foreground">type</code> — &quot;MCQ&quot; or &quot;numerical&quot; ·{" "}
+              <span className="text-foreground">required</span>
+            </li>
+            <li>
+              <code className="font-mono text-foreground">question</code> — the question text ·{" "}
+              <span className="text-foreground">required</span>
+            </li>
+            <li>
+              <code className="font-mono text-foreground">options</code> — array of 2-6 strings (MCQ only; 4 is standard)
+            </li>
+            <li>
+              <code className="font-mono text-foreground">answer</code> — MCQ: <span className="font-medium">0-based option index (A=0, B=1, C=2, D=3)</span>,
+              or a letter &quot;A&quot;-&quot;D&quot;, or exact option text · numerical: the number
+            </li>
+            <li>
+              <code className="font-mono text-foreground">tolerance</code> — numerical only, optional (default 0 = exact
+              match)
+            </li>
+            <li>
+              <code className="font-mono text-foreground">source</code>,{" "}
+              <code className="font-mono text-foreground">source_url</code>,{" "}
+              <code className="font-mono text-foreground">image</code> (dataURL) — optional
+            </li>
+          </ul>
+        </div>
+      </div>
+    </SectionCard>
   );
 }

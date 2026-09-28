@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
 import { ChartNote, ChartTip, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO } from "./shared";
 import { CountUp, Stagger, StaggerItem } from "./motion";
-import { get, kvGet, kvSet, put, useLive } from "@/lib/idb";
+import { TodoCard } from "./TodoCard";
+import { del, kvGet, kvSet, put, useLive } from "@/lib/idb";
 import {
   amberQueue,
   computeChapterHealth,
@@ -38,24 +39,10 @@ import {
   subjectAccuracy,
   timeBySubject,
 } from "@/lib/analytics";
-import { addDays, fmtSecs, todayStr, type DailyLog } from "@/lib/types";
+import { fmtSecs, todayStr } from "@/lib/types";
 
 // CH, GRID, TICK, TICK_MONO and the shared ChartTip come from shared.tsx —
 // one chart vocabulary across Dashboard and Performance.
-
-/** E2: consecutive days where all four blocks are true — ends today if today is
- *  complete, otherwise yesterday (today still in progress never breaks it). */
-function computeStreak(logs: DailyLog[], today: string): number {
-  const byDate = new Map(logs.map((l) => [l.date, l]));
-  const allDone = (l: DailyLog | undefined) => !!l && Object.values(l.blocks).every(Boolean);
-  let cursor = allDone(byDate.get(today)) ? today : addDays(today, -1);
-  let streak = 0;
-  while (allDone(byDate.get(cursor))) {
-    streak += 1;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
-}
 
 /** E3b: tooltip for the error-tags bar — raw count + share of tagged wrong. */
 function TagPctTooltip({
@@ -81,7 +68,6 @@ export function DashboardView({ nav }: { nav: NavController }) {
   const tests = useLive("tests");
   const responses = useLive("responses");
   const syllabus = useLive("syllabus");
-  const dailyLogs = useLive("daily_log");
 
   const today = todayStr();
 
@@ -188,9 +174,6 @@ export function DashboardView({ nav }: { nav: NavController }) {
       })),
     [timeline]
   );
-
-  // E2: study streak from daily_log
-  const streak = useMemo(() => computeStreak(dailyLogs, today), [dailyLogs, today]);
 
   const sortedTests = useMemo(
     () => [...tests].sort((a, b) => b.created_at - a.created_at),
@@ -313,9 +296,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
           </div>
         ) : null}
 
-        {/* Today card */}
+        {/* To-do card (replaces the old Today blocks card) */}
         <div className="lg:col-span-1">
-          <TodayCard log={dailyLogs.find((d) => d.date === today)} date={today} streak={streak} />
+          <TodoCard />
         </div>
 
         {/* Amber queue + repeated failures */}
@@ -676,153 +659,3 @@ export function DashboardView({ nav }: { nav: NavController }) {
   );
 }
 
-// ─── Today card ──────────────────────────────────────────────────────────────
-const BLOCKS: { key: keyof DailyLog["blocks"]; label: string }[] = [
-  { key: "math", label: "Math — 2h" },
-  { key: "physics", label: "Physics — 1h 45m" },
-  { key: "chemistry", label: "Chemistry — 1h 45m" },
-  { key: "recall", label: "Recall + errors — 30m" },
-];
-
-function TodayCard({
-  log,
-  date,
-  streak,
-}: {
-  log: DailyLog | undefined;
-  date: string;
-  streak: number;
-}) {
-  const [chapters, setChapters] = useState(log?.chapters ?? "");
-  const [editing, setEditing] = useState(false);
-
-  // E5: read the FRESHEST row before writing — a block toggle must never
-  // clobber a concurrent write or the unsaved "tonight's chapters" text.
-  // The daily_log object store is keyed "id" (like every non-kv store), so
-  // rows are persisted as { id: date, ...log } — a bare {date,…} row throws
-  // DataError on put (pre-existing bug: the old Today card never persisted).
-  async function freshRow(): Promise<DailyLog & { id: string }> {
-    const row = await get("daily_log", date);
-    if (row) return { ...row, id: date };
-    return {
-      id: date,
-      date,
-      blocks: { math: false, physics: false, chemistry: false, recall: false },
-      chapters: "",
-    };
-  }
-
-  async function toggle(key: keyof DailyLog["blocks"]) {
-    const fresh = await freshRow();
-    const next: DailyLog & { id: string } = {
-      ...fresh,
-      id: date,
-      blocks: { ...fresh.blocks, [key]: !fresh.blocks[key] },
-      // carry unsaved chapter text along instead of wiping it
-      chapters: chapters.trim() ? chapters : fresh.chapters,
-    };
-    await put("daily_log", next);
-  }
-
-  async function saveChapters() {
-    const fresh = await freshRow();
-    const next: DailyLog & { id: string } = { ...fresh, id: date, chapters, date };
-    await put("daily_log", next);
-    setEditing(false);
-  }
-
-  const done = log ? BLOCKS.filter((b) => log.blocks[b.key]).length : 0;
-
-  return (
-    <SectionCard
-      title="Today"
-      subtitle={date}
-      action={
-        <div className="flex items-center gap-1.5">
-          {/* E2: streak chip — plain text, subtle */}
-          {streak >= 1 ? (
-            <Badge
-              variant="outline"
-              className={
-                streak >= 3
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "border-border text-muted-foreground"
-              }
-            >
-              {streak}-day streak
-            </Badge>
-          ) : null}
-          <Badge
-            variant="outline"
-            className={
-              done === 4
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
-                : "border-border text-muted-foreground/70"
-            }
-          >
-            {done}/4 blocks
-          </Badge>
-        </div>
-      }
-    >
-      <ul className="space-y-2">
-        {BLOCKS.map((b) => (
-          <li key={b.key}>
-            <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-accent/50 press transition-colors">
-              <Checkbox
-                checked={log?.blocks[b.key] ?? false}
-                onCheckedChange={() => void toggle(b.key)}
-                aria-label={b.label}
-              />
-              <span
-                className={
-                  log?.blocks[b.key]
-                    ? "text-sm text-muted-foreground/60 line-through"
-                    : "text-sm text-foreground"
-                }
-              >
-                {b.label}
-              </span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-3">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium mb-1">
-          Tonight&apos;s chapters
-        </div>
-        {editing ? (
-          <div className="flex gap-2">
-            <Input
-              value={chapters}
-              onChange={(e) => setChapters(e.target.value)}
-              placeholder="e.g. Electrostatics PYQs, GOC notes, 1-3-7 rev of Kinematics"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void saveChapters();
-              }}
-              onBlur={() => void saveChapters()}
-              autoFocus
-            />
-            <Button size="sm" onClick={() => void saveChapters()} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
-              Save
-            </Button>
-          </div>
-        ) : (
-          <button
-            className="w-full text-left text-sm rounded-lg border border-dashed border-border px-3 py-2.5 text-muted-foreground hover:bg-accent/50 press transition-colors"
-            onClick={() => {
-              setChapters(log?.chapters ?? "");
-              setEditing(true);
-            }}
-          >
-            {log?.chapters ? log.chapters : "Click to write what you will physically do tonight…"}
-          </button>
-        )}
-      </div>
-      <p className="text-[11px] text-muted-foreground/70 mt-3">
-        A plan fails if Tuesday night arrives and you don&apos;t know what to physically do. This
-        card answers that in one glance.
-      </p>
-    </SectionCard>
-  );
-}

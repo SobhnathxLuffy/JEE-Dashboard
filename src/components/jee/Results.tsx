@@ -203,6 +203,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
   // D8: shared photo file input + full-size viewer dialog
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoTargetRef = useRef<string | null>(null);
+  const [photoDragId, setPhotoDragId] = useState<string | null>(null);
   const [viewPhoto, setViewPhoto] = useState<{ url: string; title: string; id: string } | null>(
     null
   );
@@ -361,19 +362,23 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
     photoInputRef.current?.click();
   }
 
+  async function attachPhoto(file: File, responseId: string) {
+    try {
+      const dataUrl = await fileToDataUrl(file, 1000);
+      const updated = await patchResponse(responseId, { photo: dataUrl });
+      if (updated) toast.success("Solution photo attached");
+    } catch {
+      toast.error("Could not read that image — try a JPG/PNG");
+    }
+  }
+
   async function onPhotoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file later
     const targetId = photoTargetRef.current;
     photoTargetRef.current = null;
     if (!file || !targetId) return;
-    try {
-      const dataUrl = await fileToDataUrl(file, 1000);
-      const updated = await patchResponse(targetId, { photo: dataUrl });
-      if (updated) toast.success("Solution photo attached");
-    } catch {
-      toast.error("Could not read that image — try a JPG/PNG");
-    }
+    await attachPhoto(file, targetId);
   }
 
   async function removePhoto(id: string) {
@@ -791,7 +796,25 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="mt-2 h-8 text-xs"
+                          className={cn(
+                            "mt-2 h-8 text-xs",
+                            photoDragId === r.id && "border-primary bg-primary/5 text-primary"
+                          )}
+                          onDragOver={(e) => {
+                            if (e.dataTransfer.types.includes("Files")) {
+                              e.preventDefault();
+                              setPhotoDragId(r.id);
+                            }
+                          }}
+                          onDragLeave={() => setPhotoDragId((id) => (id === r.id ? null : id))}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setPhotoDragId(null);
+                            const f = e.dataTransfer.files?.[0];
+                            if (!f) return;
+                            if (f.type.startsWith("image/")) void attachPhoto(f, r.id);
+                            else toast.error("Drop an image file (JPG/PNG)");
+                          }}
                           onClick={() => pickPhoto(r.id)}
                         >
                           📎 Attach solution photo

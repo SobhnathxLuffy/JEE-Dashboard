@@ -101,6 +101,7 @@ export function PdfImportView({
   const [keyText, setKeyText] = useState("");
   const [keyFileName, setKeyFileName] = useState<string | null>(null);
   const [keyLoading, setKeyLoading] = useState(false);
+  const [keyDrag, setKeyDrag] = useState(false);
   const [grid, setGrid] = useState<Record<number, string>>({});
   const editedRef = useRef<Set<number>>(new Set()); // cells typed by hand — paste refill skips them
 
@@ -701,12 +702,27 @@ export function PdfImportView({
                 size="sm"
                 onClick={() => keyFileRef.current?.click()}
                 disabled={keyLoading || keyLater}
+                className={cn(keyDrag && "border-primary bg-primary/5 text-primary")}
+                onDragOver={(e) => {
+                  if (!keyLoading && !keyLater && e.dataTransfer.types.includes("Files")) {
+                    e.preventDefault();
+                    setKeyDrag(true);
+                  }
+                }}
+                onDragLeave={() => setKeyDrag(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setKeyDrag(false);
+                  if (keyLoading || keyLater) return;
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) void onKeyFile(f);
+                }}
               >
                 {keyLoading
                   ? "Reading key PDF…"
                   : keyFileName
                     ? `✓ Key PDF: ${keyFileName.slice(0, 28)}`
-                    : "Upload answer-key PDF (digital)"}
+                    : "Upload answer-key PDF (digital) — or drop it here"}
               </Button>
               <div className="flex items-center gap-2">
                 <Switch

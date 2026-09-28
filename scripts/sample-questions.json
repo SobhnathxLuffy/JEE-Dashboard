@@ -1,0 +1,5 @@
+[
+  {"subject":"Physics","chapter":"Kinematics","type":"MCQ","question":"A car starts from rest and reaches 20 m/s in 5 s. Its acceleration is:","options":["2 m/s²","4 m/s²","5 m/s²","10 m/s²"],"answer":1,"source":"NCERT Ch-3"},
+  {"subject":"maths","chapter":"Quadratic Equations","type":"numerical","question":"The positive root of x^2 - 5x + 6 = 0 is:","answer":3,"tolerance":0},
+  {"subject":"Chemistry","chapter":"Mole Concept","type":"MCQ","question":"Broken row","options":["only one"],"answer":9}
+]

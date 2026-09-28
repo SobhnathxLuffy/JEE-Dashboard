@@ -8,13 +8,14 @@ import type {
   Question,
   ResponseRecord,
   SyllabusRow,
+  Task,
   TestRecord,
 } from "./types";
 
 const DB_NAME = "jee-study-app";
-// v2: adds the "papers" store (Papers library). onupgradeneeded creates any
-// missing store from STORES, so v1 installs upgrade in place — no data loss.
-const DB_VERSION = 2;
+// v3: adds the "tasks" store (to-do list). onupgradeneeded creates any
+// missing store from STORES, so v1/v2 installs upgrade in place — no data loss.
+const DB_VERSION = 3;
 
 export const STORES = [
   "questions",
@@ -25,6 +26,7 @@ export const STORES = [
   "daily_log",
   "kv",
   "papers",
+  "tasks",
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -43,6 +45,7 @@ type StoreValueMap = {
   daily_log: DailyLog;
   kv: KVRow;
   papers: PaperRecord;
+  tasks: Task;
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

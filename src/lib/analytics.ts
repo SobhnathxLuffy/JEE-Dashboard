@@ -177,22 +177,6 @@ export function revisionDueRows(syllabus: SyllabusRow[]): SyllabusRow[] {
   );
 }
 
-/** Per-subject score for an in-app test from its responses. */
-export function subjectScoresOf(
-  responses: ResponseRecord[],
-  questionIds: string[]
-): Record<Subject, number> {
-  const out: Record<Subject, number> = { Physics: 0, Chemistry: 0, Mathematics: 0 };
-  const byId = new Map(responses.map((r) => [r.question_id, r]));
-  for (const qid of questionIds) {
-    const r = byId.get(qid);
-    if (!r) continue;
-    if (!r.attempted) continue;
-    out[r.subject] += r.correct ? 4 : -1;
-  }
-  return out;
-}
-
 export function tagOf(code: ErrorTag | null): string {
   if (!code) return "—";
   const t = ERROR_TAGS.find((x) => x.code === code);

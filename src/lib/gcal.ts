@@ -76,11 +76,6 @@ export function resetSyncState(): void {
   lsDel(LS.last);
 }
 
-export function forgetClientId(): void {
-  lsDel(LS.clientId);
-  resetSyncState();
-}
-
 export interface SyncOptions {
   /** also push tests, 1-3-7 revisions and dated to-dos (recommended) */
   includeStudyPlan: boolean;

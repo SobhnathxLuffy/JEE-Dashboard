@@ -312,7 +312,7 @@ export function AppRoot() {
         <Toaster position="bottom-right" />
         {/* chrome recedes: translucent header, content area carries the contrast */}
         <header className="bg-background/85 backdrop-blur-md border-b border-border sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center font-black text-sm shrink-0">
                 JEE
@@ -338,7 +338,7 @@ export function AppRoot() {
               </button>
               <ThemeToggle />
               <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium hidden sm:block">
                   Correct under time
                 </div>
                 <div className="font-mono tabular-nums text-xl font-bold text-primary tracking-tight leading-none">
@@ -665,7 +665,7 @@ function CountdownChip() {
     >
       <PopoverTrigger asChild>
         <button
-          className="press rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors whitespace-nowrap tabular-nums"
+          className="press rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors whitespace-nowrap tabular-nums hidden sm:inline-flex"
           aria-label={`Exam countdown: ${label}. Change target date.`}
         >
           {label}

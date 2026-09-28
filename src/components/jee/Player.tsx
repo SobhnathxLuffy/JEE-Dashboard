@@ -859,6 +859,7 @@ export function PlayerView({
                     onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
                     inputMode="decimal"
                     placeholder="type the value"
+                    aria-label="Your answer (number)"
                   />
                   <p className="text-[11px] text-muted-foreground/70 mt-2">
                     Numericals carry −1 for wrong entries — leave blank instead of guessing.

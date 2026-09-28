@@ -30,16 +30,6 @@ export const CH = {
 };
 // Inline-style tooltip (recharts contentStyle) — vars resolve in inline styles.
 // For a richer tooltip use <ChartTip/> below.
-export const TIP = {
-  contentStyle: {
-    fontSize: 12,
-    borderRadius: 8,
-    border: "1px solid var(--border)",
-    background: "var(--popover)",
-    color: "var(--popover-foreground)",
-    boxShadow: "var(--tip-shadow)",
-  },
-};
 export const GRID = { strokeDasharray: "3 3", stroke: "var(--chart-grid)" };
 export const TICK = { fontSize: 10, fill: "var(--chart-tick)" };
 // numeric axes read as data → mono (Geist "tabular numerals for numbers")

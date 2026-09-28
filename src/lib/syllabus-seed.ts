@@ -119,18 +119,4 @@ export function buildSyllabusSeed(): SyllabusRow[] {
 
 export const SYLLABUS_SEED = buildSyllabusSeed();
 
-export function makeSyllabusRow(subject: Subject, chapter: string): SyllabusRow {
-  return {
-    id: `${subject}:${chapter}`,
-    chapter,
-    subject,
-    tier: 2,
-    status: "Not Started",
-    notes: "",
-    last_revised: null,
-    revision_stage: 0,
-    next_revision: null,
-  };
-}
-
 export { uid };

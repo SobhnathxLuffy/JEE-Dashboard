@@ -25,19 +25,7 @@ export interface CalItem {
   syncedAt?: number; // google sync stamp (events only)
 }
 
-/** events span [date, end_date) — iterate the covered dates for grid lookup */
-export function eventDates(ev: CalEventRecord): string[] {
-  if (!ev.allDay || !ev.end_date) return [ev.date];
-  const dates: string[] = [];
-  const cur = new Date(`${ev.date}T12:00:00`);
-  const end = new Date(`${ev.end_date}T12:00:00`);
-  for (let i = 0; i < 62 && cur < end; i++) {
-    dates.push(`${cur.getFullYear()}-${`${cur.getMonth() + 1}`.padStart(2, "0")}-${`${cur.getDate()}`.padStart(2, "0")}`);
-    cur.setDate(cur.getDate() + 1);
-  }
-  return dates.length > 0 ? dates : [ev.date];
-}
-
+/** first line of notes, for chips */
 function sub(notes?: string): string | undefined {
   const first = notes?.split("\n")[0]?.trim();
   return first ? first : undefined;
@@ -160,15 +148,6 @@ export function indexByDate(items: CalItem[]): Map<string, CalItem[]> {
 export function itemsOn(map: Map<string, CalItem[]>, date: string): CalItem[] {
   return (map.get(date) ?? []).filter((it) => it.allDay || it.date === date);
 }
-
-// ─── sync payload ────────────────────────────────────────────────────────────
-
-export const SYNC_KEYS = {
-  test: (id: string) => `test:${id}`,
-  rev: (id: string) => `rev:${id}`,
-  task: (id: string) => `task:${id}`,
-  evt: (id: string) => `evt:${id}`,
-};
 
 /** Local-only provenance footer so events on Google trace back to the app. */
 const SOURCE_TAG = "— sent from JEE Study App";

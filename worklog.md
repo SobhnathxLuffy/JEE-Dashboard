@@ -344,3 +344,22 @@ Work Log:
 
 Stage Summary:
 - Optional cross-device sync shipped the Super-Productivity-style way: user's own free Supabase project + passwordless auth + RLS, per-record LWW with tombstones, server-side monotone push guard, in-app setup wizard, quiet header chip. Local-first intact — sync is additive, off until configured. Verified end-to-end with a mock server across two simulated devices including conflict resolution; ready for the user's real Supabase project.
+
+---
+Task ID: 15
+Agent: main (Super Z)
+Task: Full QA pass — test every feature end-to-end, fix bugs, remove bloat.
+
+Work Log:
+- Static gates: tsc 0 errors, eslint 0 errors at start AND after every change.
+- E2E (agent-browser, fresh + seeded profiles): Dashboard (todo add/toggle/delete/due-date badges, coach card, countdown, amber queue, repeated-failure), New CBT (chapter filter counts, validation toast, start), Player (3-Q chapter test with per-question timer, palette, numerical+MCQ answering, submit confirm), Results (score −1/12 correct math, error tagging C, notes, untagged filter), Explain AI (mock provider, streams, "cached · free" idempotency), PDF Test (upload→Papers library toast, 10-key paste parse incl. "B or C"/42/bonus, page-mode player, scoring 3/40 = bonus(+4)+wrong(−1) verified against IDB rows), Papers (reuse→import), Question Bank (JSON import validation rejected broken row, 2 imported; PDF→Bank extract 2 ready→import→16 total), Syllabus (status→Learning→revision loop stage 1/4→2/4, due tonight→in 1d, Mark revised, chips update), Performance (5 attempted/2 correct/3 wrong cross-checked against IDB, 6 recharts SVGs, mistake list with tags), Formula sheet (chapter-required validation toast, manual add works), External log (per-subject cap validation, then logged 142/300), Sync mock two-tab (A sign-in→push, B pull 5 tasks/6 events/5 tests/33 responses, B toggle→A applied, B delete→tombstone→A removed), AI Coach (report from real data, 7-day plan 5 blocks, "Add plan to Calendar" idempotent, exactly 5 CalEventRecords), dark mode + 390px mobile.
+- BUG #1 fixed (src/lib/sync.ts): a mock-mode config (mock:// URL) saved during testing poisoned normal mode — createClient threw "Invalid supabaseUrl" on every boot with console noise. initSync() now heals: non-mock mode + mock:// URL → clearSyncConfig().
+- BUG #2 fixed (Player.tsx): numerical answer Input had no accessible label (visual <p> only). Added aria-label="Your answer (number)".
+- BUG #3 fixed (ai/PdfExtractPanel.tsx): handleFile(files[0]) crashed on an empty file list (file.name on undefined). Added !file guard.
+- BUG #4 fixed (App.tsx): 390px header overlap — countdown pill covered the logo and the north-star clipped. Header row now flex-wrap; pill + "Correct under time" label hidden below sm. Verified at 390px and 1280px.
+- NOT-A-BUG deep-dives: "lost Q1 answer" tracked to agent-browser fuzzy name-matching (find --name "B" matched "Sync: ... between ..."), disproved with 3 deterministic IDB-row reproduction runs; Results attempted/accuracy internally consistent once all 3 test records considered; analytics consistently filters r.attempted; transient red line over header = content scrolling under translucent sticky header (measured: line inside scroll viewport).
+- Bloat removed: 34/48 shadcn ui components (48→14 kept), dead template files (lib/db.ts+prisma/, app/api/route.ts hello-world, hooks/use-toast.ts, hooks/use-mobile.ts, tailwind.config.ts v3-style config superseded by v4 @theme), 9 dead exports (subjectScoresOf, eventDates, SYNC_KEYS, forgetClientId, makeSyllabusRow, activeBackendKind, PageIn, TIP, fmtHeaderDate), 46 unused dependencies (@dnd-kit/*, @mdxeditor, @tanstack/*, next-auth, next-intl, react-markdown, react-syntax-highlighter, zod, zustand, date-fns, uuid, sharp, 20 radix packages, prisma, tailwindcss-animate, ...). package.json 88→42 deps.
+- Regression: unit suites green after cleanup (sync.test.ts 14/14, gcal.test.ts 21/21); browser smoke fresh-load 0 console errors; all 11 views render.
+
+Stage Summary:
+- Every app feature exercised in a real browser and cross-checked against IndexedDB storage; 4 real bugs fixed (sync config poisoning, a11y label, empty-file crash, mobile header overlap) and ~100 files of template bloat removed. Bundle-worthy deps cut nearly in half. All gates green: tsc 0, eslint 0, 35/35 unit checks, browser E2E pass, 0 console errors.

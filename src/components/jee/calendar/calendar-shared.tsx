@@ -115,11 +115,6 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export function fmtHeaderDate(date: string): string {
-  const d = new Date(`${date}T12:00:00`);
-  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
-}
-
 export function fmtDow(date: string): string {
   return DOW[new Date(`${date}T12:00:00`).getDay()];
 }

@@ -459,10 +459,6 @@ function getBackend(): SyncBackend | null {
   return backend;
 }
 
-export function activeBackendKind(): "supabase" | "mock" | null {
-  return backendKind;
-}
-
 /** Apply a pulled page of rows. Returns {applied, maxRemoteMs}. */
 async function applyRemote(rows: SyncRow[]): Promise<{ applied: number; maxRemoteMs: number }> {
   // group per store to keep it to one bulkPut per store (fewer live-refetches)
@@ -651,8 +647,14 @@ export function disconnectSync(): void {
  */
 export function initSync(): void {
   const mock = isMockMode();
-  if (mock && !loadSyncConfig()) {
+  const cfgExisting = loadSyncConfig();
+  if (mock && !cfgExisting) {
     saveSyncConfig({ url: "mock://local-device-sync", anonKey: "mock-anon-key" });
+  }
+  // A config saved by mock-mode testing must not poison normal mode
+  // (createClient would throw "Invalid supabaseUrl" on mock:// URLs).
+  if (!mock && cfgExisting && cfgExisting.url.startsWith("mock:")) {
+    clearSyncConfig();
   }
   const cfg = loadSyncConfig();
   publishStatus({ auto: loadAuto(), mock });

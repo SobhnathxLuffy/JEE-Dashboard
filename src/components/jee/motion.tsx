@@ -15,26 +15,6 @@ import { cn } from "@/lib/utils";
 
 export const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-// ─── Page entrance: whole view fades in with a soft rise ─────────────────────
-export function PageIn({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, ease: EASE }}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
 // ─── Staggered children: cards/lists enter in a quick cascade ────────────────
 const staggerParent: Variants = {
   hidden: {},

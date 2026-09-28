@@ -109,7 +109,7 @@ export function PdfExtractPanel({ onClose }: { onClose: () => void }) {
   const errorRows = useMemo(() => rows.filter((r) => !r.deleted && !r.question), [rows]);
 
   async function handleFile(file: File) {
-    if (phase === "reading" || phase === "extracting") return;
+    if (!file || phase === "reading" || phase === "extracting") return;
     // local const — the setState value would be stale inside this async closure
     const srcName = `AI extract · ${file.name.replace(/\.pdf$/i, "").slice(0, 40)}`;
     setPdfName(file.name);

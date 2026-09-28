@@ -336,7 +336,7 @@ export function QuestionBankView() {
                       onClick={() => setAnswerIdx(i)}
                       className={`w-7 h-7 rounded-full grid place-items-center text-xs font-bold border transition-colors ${
                         answerIdx === i
-                          ? "bg-primary text-primary-foreground border-primary"
+                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
                           : "bg-card text-muted-foreground border-border hover:border-emerald-500 dark:hover:border-emerald-400 dark:hover:border-emerald-500"
                       }`}
                     >
@@ -419,7 +419,7 @@ export function QuestionBankView() {
 
             {editingId ? (
               <div className="flex items-center gap-3">
-                <Button onClick={() => void saveEdit()} className="flex-1 bg-primary hover:bg-primary/90">
+                <Button onClick={() => void saveEdit()} className="flex-1 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
                   Save changes
                 </Button>
                 <button
@@ -431,7 +431,7 @@ export function QuestionBankView() {
                 </button>
               </div>
             ) : (
-              <Button onClick={addQuestion} className="w-full bg-primary hover:bg-primary/90">
+              <Button onClick={addQuestion} className="w-full bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
                 Add to bank
               </Button>
             )}
@@ -522,14 +522,14 @@ export function QuestionBankView() {
                         {q.type === "MCQ" ? (
                           <p className="text-xs text-muted-foreground mt-1">
                             Correct:{" "}
-                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                            <span className="text-sage-700 dark:text-sage-400 font-medium">
                               {OPTION_LETTERS[q.answer as number]} · {q.options[q.answer as number]}
                             </span>
                           </p>
                         ) : (
                           <p className="text-xs text-muted-foreground mt-1">
                             Answer:{" "}
-                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                            <span className="text-sage-700 dark:text-sage-400 font-medium">
                               {q.answer as number}
                               {q.tolerance ? ` ± ${q.tolerance}` : " (exact)"}
                             </span>

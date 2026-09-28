@@ -228,7 +228,7 @@ export function DataView() {
               <span>daily logs: <strong>{daily.length}</strong></span>
               <span>papers: <strong>{papers.length}</strong></span>
             </div>
-            <Button onClick={exportAll} className="bg-primary hover:bg-primary/90">
+            <Button onClick={exportAll} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
               Export JSON backup
             </Button>
             <p className="text-[11px] text-muted-foreground/70">

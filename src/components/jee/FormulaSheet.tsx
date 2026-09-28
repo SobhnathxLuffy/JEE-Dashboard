@@ -211,7 +211,7 @@ export function FormulaView({ nav }: { nav: NavController }) {
               }}
             />
           </div>
-          <Button onClick={() => void addManual()} className="bg-primary hover:bg-primary/90 min-h-[44px]">
+          <Button onClick={() => void addManual()} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px]">
             Add
           </Button>
         </div>

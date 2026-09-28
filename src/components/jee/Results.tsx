@@ -435,8 +435,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
         }
       />
 
-      {/* score hero — animated gradient border, ring draws in with glow */}
-      <div className="rounded-2xl border-nova px-5 py-5 flex items-center gap-6 flex-wrap shadow-[0_12px_48px_-16px_var(--glow-primary)]">
+      {/* score hero — ring draws in, number settles, subject split at a glance */}
+      <div className="rounded-xl border border-border bg-card card-shadow px-5 py-4 flex items-center gap-6 flex-wrap">
         {test.score === null ? (
           <div className="flex items-center gap-3 text-sm text-amber-700 dark:text-amber-300 py-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
@@ -444,12 +444,12 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           </div>
         ) : (
           <>
-            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={110} strokeWidth={8}>
+            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={92}>
               <div className="text-center leading-none">
-                <div className="font-mono tabular-nums text-2xl font-bold text-gradient glow-text">
+                <div className="font-mono tabular-nums text-xl font-bold text-foreground">
                   <CountUp value={test.score} />
                 </div>
-                <div className="text-[10px] font-mono text-muted-foreground mt-1">/{test.max_score}</div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5">/{test.max_score}</div>
               </div>
             </ScoreRing>
             <div className="flex flex-wrap items-center gap-x-7 gap-y-3 min-w-0">
@@ -476,7 +476,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                     <span
                       className={cn(
                         "inline-block w-2 h-2 rounded-full",
-                        s === "Physics" ? "bg-amber-500" : s === "Chemistry" ? "bg-emerald-600 dark:bg-emerald-400" : "bg-stone-800 dark:bg-stone-300"
+                        s === "Physics" ? "bg-amber-500" : s === "Chemistry" ? "bg-sage-600 dark:bg-sage-400" : "bg-stone-800 dark:bg-stone-300"
                       )}
                       aria-hidden="true"
                     />
@@ -550,7 +550,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           <Button
             onClick={startRetry}
             disabled={retryIds.length === 0}
-            className="bg-primary hover:bg-primary/90 min-h-[44px] px-5 font-semibold"
+            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px] px-5 font-semibold"
           >
             ↻ Retry wrong ({retryIds.length})
           </Button>
@@ -585,7 +585,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             className={cn(
               "min-h-[44px] px-5 font-semibold",
               test.pdf_meta.key_later || test.pdf_meta.key.length === 0
-                ? "bg-primary hover:bg-primary/90"
+                ? "bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
                 : ""
             )}
             variant={
@@ -671,7 +671,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                   className={cn(
                     "press px-2.5 py-1 rounded-full text-xs transition-colors min-h-[28px]",
                     subjectFilter === s
-                      ? "bg-primary text-primary-foreground font-medium"
+                      ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
                       : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
@@ -710,7 +710,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                       : !r.attempted
                         ? "border-border border-l-stone-300 dark:border-l-stone-600 bg-stone-50/60 dark:bg-stone-500/5"
                         : r.correct === true
-                          ? "border-emerald-100 border-l-emerald-600 bg-emerald-50/50 dark:border-emerald-500/20 dark:border-l-emerald-500 dark:bg-emerald-500/5"
+                          ? "border-sage-100 border-l-sage-600 bg-sage-50/50 dark:border-sage-500/20 dark:border-l-sage-500 dark:bg-sage-500/5"
                           : r.correct === false
                             ? "border-red-100 border-l-red-500 bg-red-50/40 dark:border-red-500/20 dark:border-l-red-500 dark:bg-red-500/5"
                             : "border-amber-100 border-l-amber-500 bg-amber-50/40 dark:border-amber-500/20 dark:border-l-amber-500 dark:bg-amber-500/5" // pending self-mark
@@ -732,7 +732,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                             unattempted
                           </Badge>
                         ) : r.correct === true ? (
-                          <Badge className="text-[10px] bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-600 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">
+                          <Badge className="text-[10px] bg-sage-600 dark:bg-sage-500 hover:bg-sage-600 dark:hover:bg-sage-500 text-white dark:text-sage-950 border-0">
                             +4
                           </Badge>
                         ) : r.correct === false ? (
@@ -810,8 +810,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                             className={cn(
                               "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
                               r.correct === true
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "bg-card border-border text-muted-foreground hover:border-emerald-500 dark:hover:border-emerald-400 hover:text-foreground"
+                                ? "bg-sage-700 dark:bg-sage-500 text-white dark:text-sage-950 border-sage-700 dark:border-sage-500"
+                                : "bg-card border-border text-muted-foreground hover:border-sage-500 dark:hover:border-sage-400 hover:text-foreground"
                             )}
                           >
                             ✓ Correct
@@ -1037,7 +1037,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             </Button>
             <Button
               size="sm"
-              className="bg-primary hover:bg-primary/90"
+              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
               disabled={lkBusy || lkGridKey.length === 0}
               onClick={() => void applyLkKey()}
             >

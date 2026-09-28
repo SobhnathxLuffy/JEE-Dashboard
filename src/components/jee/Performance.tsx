@@ -363,7 +363,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
           {trend.length === 0 ? (
             <EmptyNote>No attempts in this selection yet.</EmptyNote>
           ) : (
-            <div className="h-64 chart-glow" style={{ "--glow-c": CH.green } as React.CSSProperties}>
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                   <CartesianGrid {...GRID} />
@@ -372,8 +372,8 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                   <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={TICK_MONO} />
                   <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar maxBarSize={48} yAxisId="l" dataKey="attempted" name="attempted" fill={CH.stone} radius={[6, 6, 0, 0]} />
-                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: CH.green }} />
+                  <Bar maxBarSize={48} yAxisId="l" dataKey="attempted" name="attempted" fill={CH.stone} radius={[3, 3, 0, 0]} />
+                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: CH.green }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -395,13 +395,13 @@ export function PerformanceView({ nav }: { nav: NavController }) {
           {scoreSeries.length === 0 ? (
             <EmptyNote>No scored tests yet.</EmptyNote>
           ) : (
-            <div className="h-64 chart-glow" style={{ "--glow-c": CH.green } as React.CSSProperties}>
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={scoreSeries} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                   <defs>
                     <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CH.green} stopOpacity={0.34} />
-                      <stop offset="100%" stopColor={CH.green} stopOpacity={0.02} />
+                      <stop offset="0%" stopColor={CH.coral} stopOpacity={0.22} />
+                      <stop offset="100%" stopColor={CH.coral} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid {...GRID} vertical={false} />
@@ -415,9 +415,9 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                     cursor={{ stroke: "var(--chart-tick)", strokeDasharray: "3 3" }}
                   />
                   {subject === "all" ? (
-                    <Area dataKey="pct" name="% of max" stroke={CH.green} strokeWidth={2.5} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 4, fill: CH.green }} />
+                    <Area dataKey="pct" name="% of max" stroke={CH.coral} strokeWidth={2} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 3, fill: CH.coral }} />
                   ) : (
-                    <Area dataKey="subjectMarks" name="subject marks" stroke={CH.green} strokeWidth={2.5} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 4, fill: CH.green }} />
+                    <Area dataKey="subjectMarks" name="subject marks" stroke={CH.coral} strokeWidth={2} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 3, fill: CH.coral }} />
                   )}
                 </AreaChart>
               </ResponsiveContainer>
@@ -439,7 +439,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
             {chapterBars.length === 0 ? (
               <EmptyNote>No attempted questions in this subject yet.</EmptyNote>
             ) : (
-              <div className="h-72 chart-glow" style={{ "--glow-c": CH.green } as React.CSSProperties}>
+              <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chapterBars} margin={{ top: 8, right: 8, left: -18, bottom: 40 }}>
                     <CartesianGrid {...GRID} />
@@ -448,7 +448,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                     <Tooltip content={<ChapterTip />} cursor={{ fill: "var(--chart-grid)" }} />
                     <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
                     <ReferenceLine y={40} stroke={CH.red} strokeDasharray="4 4" />
-                    <Bar maxBarSize={48} dataKey="accuracy" radius={[6, 6, 0, 0]}>
+                    <Bar maxBarSize={48} dataKey="accuracy" radius={[3, 3, 0, 0]}>
                       {chapterBars.map((b) => (
                         <Cell
                           key={b.full}
@@ -540,7 +540,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                             className={cn(
                               "font-semibold tabular-nums",
                               acc >= 70
-                                ? "text-emerald-700 dark:text-emerald-400"
+                                ? "text-sage-700 dark:text-sage-400"
                                 : acc >= 40
                                   ? "text-amber-600 dark:text-amber-400"
                                   : "text-red-600 dark:text-red-400"

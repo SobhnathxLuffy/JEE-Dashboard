@@ -322,7 +322,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                     className={cn(
                       "px-3 py-1.5 rounded-full text-sm transition-colors",
                       activeSubject === s
-                        ? "bg-primary text-primary-foreground font-medium"
+                        ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
                         : "bg-muted text-muted-foreground hover:bg-accent"
                     )}
                   >
@@ -342,7 +342,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                       className={cn(
                         "px-3 py-1.5 rounded-full text-xs border transition-colors",
                         on
-                          ? "bg-primary text-primary-foreground border-primary"
+                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
                           : count === 0
                             ? "border-border/60 text-muted-foreground/50 cursor-not-allowed"
                             : "border-border text-muted-foreground hover:border-emerald-500 dark:hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-400 bg-card"
@@ -493,7 +493,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
 
             <div className="flex gap-2 mt-4">
               <Button
-                className="flex-1 bg-primary hover:bg-primary/90 min-h-[44px]"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px]"
                 onClick={buildSession}
               >
                 Start test

@@ -190,15 +190,9 @@ export function PlayerView({
   );
   const mins = Math.floor(remaining / 60);
   const secs = Math.floor(remaining % 60);
-  // B5 timer stages — proportional so a 5-min drill doesn't scream "amber"
-  // at t=0 like the old absolute 2/10-minute cutoffs did.
-  // full mock (180 min): red ≤ 2 min, amber ≤ 10 min (original semantics);
-  // short drill (5 min): red ≤ 45 s, amber ≤ 2 min.
-  const totalSecs = Math.max(60, session.duration_min * 60);
-  const redAt = Math.min(120, Math.round(totalSecs * 0.15));
-  const amberAt = Math.max(redAt + 60, Math.min(600, Math.round(totalSecs * 0.4)));
+  // B5 timer stages: ≤2 min red, ≤10 min amber, else normal
   const timeStage: "red" | "amber" | "normal" =
-    remaining <= redAt ? "red" : remaining <= amberAt ? "amber" : "normal";
+    remaining <= 120 ? "red" : remaining <= 600 ? "amber" : "normal";
 
   // ── per-question time accounting ──
   const commitTime = useCallback(
@@ -327,12 +321,11 @@ export function PlayerView({
       import("canvas-confetti")
         .then(({ default: confetti }) => {
           confetti({
-            particleCount: 110,
-            spread: 75,
-            startVelocity: 40,
+            particleCount: 90,
+            spread: 70,
+            startVelocity: 38,
             origin: { y: 0.7 },
-            // NOVA palette — violet / cyan / magenta / white sparks
-            colors: ["#8b5cf6", "#22d3ee", "#e879f9", "#f8fafc"],
+            colors: ["#D97757", "#7C9A73", "#D4A27F", "#8B8577"],
           });
         })
         .catch(() => {});
@@ -631,7 +624,7 @@ export function PlayerView({
       {/* header — the hairline under the clock drains away as time runs out */}
       <div
         className={cn(
-          "glass-deep border rounded-xl px-4 pt-3 pb-3.5 flex items-center justify-between gap-3 flex-wrap relative overflow-hidden",
+          "bg-card card-shadow border rounded-xl px-4 pt-3 pb-3.5 flex items-center justify-between gap-3 flex-wrap relative overflow-hidden",
           timeStage === "red"
             ? "border-red-300 dark:border-red-500/40"
             : timeStage === "amber"
@@ -665,7 +658,7 @@ export function PlayerView({
           </div>
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90">Submit</Button>
+              <Button className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">Submit</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -680,7 +673,7 @@ export function PlayerView({
               <AlertDialogFooter>
                 <AlertDialogCancel>Keep solving</AlertDialogCancel>
                 <AlertDialogAction
-                  className="bg-primary hover:bg-primary/90"
+                  className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
                   onClick={() => void submit()}
                 >
                   Submit &amp; analyze
@@ -689,17 +682,12 @@ export function PlayerView({
             </AlertDialogContent>
           </AlertDialog>
         </div>
-        {/* remaining-time bar — drains toward zero; normal stage is a lit
-            violet→cyan filament with a scanning shimmer, then recolors */}
+        {/* remaining-time bar — drains toward zero, recolors at the stages */}
         <div className="absolute inset-x-0 bottom-0 h-0.5" aria-hidden="true">
           <div
             className={cn(
               "h-full transition-[width] duration-500 ease-linear",
-              timeStage === "red"
-                ? "bg-red-500"
-                : timeStage === "amber"
-                  ? "bg-amber-500"
-                  : "bg-gradient-to-r from-violet-500 to-cyan-400 shimmer"
+              timeStage === "red" ? "bg-red-500" : timeStage === "amber" ? "bg-amber-500" : "bg-sage-600 dark:bg-sage-500"
             )}
             style={{ width: `${Math.max(0, Math.min(100, (remaining / Math.max(1, session.duration_min * 60)) * 100))}%` }}
           />
@@ -929,7 +917,7 @@ export function PlayerView({
                           className={cn(
                             "w-6 h-6 rounded-full grid place-items-center text-xs font-bold border shrink-0",
                             selected === i
-                              ? "bg-primary text-primary-foreground border-primary"
+                              ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
                               : "border-border text-muted-foreground"
                           )}
                         >
@@ -989,7 +977,7 @@ export function PlayerView({
             <Button
               size="sm"
               onClick={saveAndNext}
-              className="h-10 px-3 bg-primary hover:bg-primary/90"
+              className="h-10 px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
             >
               Save &amp; Next
             </Button>

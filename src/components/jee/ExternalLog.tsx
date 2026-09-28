@@ -253,7 +253,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Abhyas mock #4" />
             </div>
           </div>
-          <Button onClick={save} className="w-full mt-4 bg-primary hover:bg-primary/90">
+          <Button onClick={save} className="w-full mt-4 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
             {editingId ? "Update test" : "Log test"}
           </Button>
           <p className="text-[11px] text-muted-foreground/70 mt-3">

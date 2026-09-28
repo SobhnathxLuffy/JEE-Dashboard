@@ -19,7 +19,14 @@ export const metadata: Metadata = {
     "Local-first JEE prep console: CBT player, PDF page-mode tests, error tagging, Amber-first repair queue, 1-3-7 revision loop. All data stays in your browser.",
   keywords: ["JEE", "study app", "CBT", "error tagging", "IndexedDB"],
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/logo.svg" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

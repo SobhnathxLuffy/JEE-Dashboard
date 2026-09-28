@@ -389,3 +389,15 @@ Stage Summary:
 - One-command setup: git pull/extract -> ./scripts/setup-local.sh -> app in launcher, autostarts at login, loopback-only
 - Deliverables: scripts/setup-local.sh, scripts/uninstall-local.sh, scripts/make_icons.py, public/icons/*, new logo.svg + favicon, README guide
 - Open item: user must push local main (9+ commits incl. all batch work) to github.com/SobhnathxLuffy/JEE-Dashboard from a machine with credentials, or use the tarball
+
+---
+Task ID: 14
+Agent: main (Super Z)
+Task: Push local main to github.com/SobhnathxLuffy/JEE-Dashboard using a user-provided fine-grained PAT.
+
+Work Log:
+- Pre-push audit: found tracked sandbox junk (.env with local DATABASE_URL, db/custom.db unused by app, 13MB download tarball auto-committed by sandbox) — untracked all three via git reset --soft + git rm --cached, extended .gitignore (db/, download/*.tar.gz)
+- Token used one-time via ephemeral git credential helper (env var), NOT saved to git config or disk
+
+Stage Summary:
+- Remote main = local main after push; repo publishes clean (no secrets, no sandbox artifacts, no duplicate tarball blob)

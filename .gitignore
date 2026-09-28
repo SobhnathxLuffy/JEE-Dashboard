@@ -54,3 +54,7 @@ server.log
 /skills/
 # internal tool output
 tool-results
+
+# sandbox artifacts — never publish
+db/
+download/*.tar.gz

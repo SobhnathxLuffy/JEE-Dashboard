@@ -283,3 +283,23 @@ Work Log:
 
 Stage Summary:
 - 4 user features shipped; DB v3 migration seamless; Google sync delivered as official no-backend paths (template links + .ics import) with honest in-UI explanation
+
+---
+Task ID: 12
+Agent: main (Super Z)
+Task: Rebuild the Calendar as a real Google Calendar-grade app (day/week/month time grid, drag time-blocking) and add a genuine one-way sync to Google Calendar (Super Productivity-style); "verify aggressively then push".
+
+Work Log:
+- Data: types.ts CalEventRecord + EventColor (minutes-from-midnight, no tz math); idb.ts v4 adds "cal_events" store (onupgradeneeded migration, v3 data intact — verified by reloading a populated DB)
+- lib/calendar.ts: timed-event support for Google template links (floating datetimes) + RFC 5545 ICS (DTSTART floating local; multi-day all-day; escaping)
+- lib/gcal.ts (NEW): Google Identity Services token client (implicit OAuth, no backend, user-supplied Client ID — Google requires per-origin authorized JS origins), token cache/silent-reauth/interactive fallback, Calendar API v3 POST/PATCH/DELETE, one-way mirror sync driven by content hashes (create new, PATCH changed, DELETE removed-from-app; per-item error isolation; map persisted in localStorage), colorId mapping (sage→2 etc.), tzOffsetString
+- lib/calitems.ts (NEW): pure assembly of tests + 1-3-7 revisions + dated to-dos + user events into CalItem[] (multi-day all-day indexing, exclusive end dates) and into the SyncItem payload; done/undated to-dos excluded (mirror cleans their Google events)
+- UI (src/components/jee/calendar/): TimeGridView (day/week, 48px/hour, 15-min snap, drag-create with live range preview, drag-move, bottom-edge resize, cluster-based overlap lanes, all-day row, red now-line, auto-scroll to now), MonthGridView (timed chips with time prefix, +N more, day click → day view), EventDialog (all-day toggle, color swatches, notes, delete; form remounts per target — no setState-in-effect), GoogleSyncPanel (status dot, Sync now, include-study-plan + auto-sync switches, 5-step setup wizard with copyable origin, disconnect, reset sync map), CalendarView shell (view switcher, period nav, .ics export menu, item info dialog, debounced auto-sync)
+- Tests (scripts/gcal.test.ts, 21 checks): Google event bodies (timed offset/all-day/multi-day/colorId), itemHash stability, mirrorSync against mock fetch (create/no-op/update+delete/error isolation/410-as-success), assembly + indexByDate + payload filtering, ICS, template links, HHMM helpers. Found+fixed 2 real bugs: exclusive-end zero-day coverage; fractional-minute drift in drag-move (grab offset now snapped)
+- E2E (agent-browser): dialog create, drag-create Tue 14:00–15:30 (live preview "14:00 – 15:30" then prefilled dialog), drag-move 12:00–13:00 toast, resize "Ends at 13:45 now", click-without-drag opens editor, delete, month chips w/ time prefix, day view + all-day task chip from Dashboard to-do, .ics export toast, dark mode, mobile 390px (day auto-select), console 0 errors/warnings
+- Full sync lifecycle verified in-browser with fake GIS + fetch stub: connect → "2 created" (POSTs) → second sync "already up to date" (0 calls) → resize → auto-sync "1 updated" (PATCH to correct gid) → delete → "1 removed" (DELETE to gid, map cleaned); localStorage map/last-sync inspected
+- tsc 0, eslint 0, dev.log clean; screenshots in research/cal/e01–e12
+- Committed 0907efe. Push FAILED again — no GitHub credentials in env (token rotated); needs fresh token for git push origin main.
+
+Stage Summary:
+- The Calendar tab is now a genuine Google Calendar replacement surface: three views, free time-blocking by drag, move/resize, all-day aggregation of the study plan, .ics fallback — and a real one-way sync that mirrors the app onto Google Calendar with zero-config idempotence and repair-on-change. User needs only their own OAuth Client ID (wizard walks them through it, origin copy-paste ready).

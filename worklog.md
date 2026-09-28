@@ -246,3 +246,23 @@ Work Log:
 Stage Summary:
 - The app now looks/behave like a premium futuristic instrument: space-black glass deck on a living aurora, violet-cyan energy at every action point, cursor-tracked spotlight cards, glowing charts/rings/timer, cinematic blur transitions, Space Grotesk display voice — while all 40+ behaviors and NTA semantics stay intact and E2E-verified.
 - Pending: `git push origin main` once the user supplies a fresh GitHub token.
+
+---
+Task ID: 10
+Agent: main (Super Z)
+Task: Revert the NOVA futuristic redesign (user disliked it) back to the v2 Quiet Cockpit overhaul, then recolor the entire app with a Claude-inspired warm palette (ivory/bone + terracotta coral).
+
+Work Log:
+- Git-archeology: identified 5109415 (NOVA) vs 3dcf9f8 (preferred v2); restored src/, public/, DESIGN.md from 3dcf9f8; deleted research/nova/ + scripts/nova_sweep.py
+- Rewrote globals.css as "Warm Study": light ivory #FAF9F5 bg / white cards / bone #F0EEE6 panels / warm ink text; dark = claude.ai charcoal #262624 / #30302e cards / ivory text; brand accent coral #D97757 (primary #C15F3C light for AA contrast)
+- Key technique: @theme ramp overrides remap legacy Tailwind families (~600 hardcoded tokens, zero component churn): emerald->coral, amber->kraft, orange->sage, red->brick, sky->dusty blue, violet/purple->plum, stone->warm gray
+- Hand-swaps for semantics: correct-answer rows/+4 badges/health chips/QuestionBank correct text/Performance good-accuracy/timer-calm/Chemistry SubjectDot -> sage-*
+- Chart vocabulary split in shared.tsx: CH.coral (score timeline, marks-lost actual, % of max) vs CH.green -> var(--sem-sage) (accuracy traffic light, y=70 refline); fixed gradient-stop ownership in Performance
+- Player confetti hexes -> [#D97757, #7C9A73, #D4A27F, #8B8577]; viewport theme-color + manifest -> ivory/charcoal
+- Verified: tsc 0, eslint 0; agent-browser E2E light+dark across Dashboard/Performance/Results review/Syllabus + mobile 390px; 0 console/page errors; screenshots in research/warm/
+- Committed fde1506
+
+Stage Summary:
+- App restored to the v2 motion/layout system the user preferred, now wearing a calm Claude-style warm identity
+- Correct/wrong/accent semantics preserved (sage vs brick vs coral) while every surface reads warm ivory + terracotta
+- Dark mode is a first-class claude.ai-style charcoal theme

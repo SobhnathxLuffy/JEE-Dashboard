@@ -266,3 +266,20 @@ Stage Summary:
 - App restored to the v2 motion/layout system the user preferred, now wearing a calm Claude-style warm identity
 - Correct/wrong/accent semantics preserved (sage vs brick vs coral) while every surface reads warm ivory + terracotta
 - Dark mode is a first-class claude.ai-style charcoal theme
+
+---
+Task ID: 11
+Agent: main (Super Z)
+Task: Add (a) to-do list replacing Today card, (b) Calendar view with Google Calendar sync, (c) Question Bank JSON bulk import with documented format, (d) drag-drop on every upload surface.
+
+Work Log:
+- idb.ts v3 + "tasks" store (onupgradeneeded auto-creates; no data loss); types.ts Task interface
+- TodoCard.tsx (own file): quick-add + optional due date, overdue/today/dated badges, toggle, delete, clear-completed; Dashboard: removed TodayCard/BLOCKS/computeStreak/dailyLogs, swapped usage + imports
+- lib/calendar.ts: CalEvent, googleCalUrl (TEMPLATE link), buildIcs/downloadIcs (RFC 5545, CRLF, UID, DTSTAMP); unit-tested via tsx -> fixed double-Z DTSTAMP and %2F-encoded dates bugs
+- CalendarView.tsx: Sunday-start 6-week grid, eventsByDate memo (tests/revisions/open task dues), chips coral/kraft/plum (dots on mobile), selected-day panel (tests w/ score, revisions w/ stage, tasks w/ toggle+delete+quick-add+Google link), .ics month/all exports; App.tsx ViewName+NAV+NAV_GROUPS+render with CalendarDays icon
+- QuestionBank: JsonImportPanel (FileDrop + paste textarea + IMPORT_EXAMPLE doc + copy button + parseQuestionsJson lenient parser + per-row errors + valid/skipped badges + bulkPut); figure tile drop; onImageFile(File) refactor
+- FileDrop.tsx shared component; wired into Papers (direct multi-PDF to library w/ pdf.js numPages), DataView backup restore, JSON import; Results photo buttons drop-to-attach (attachPhoto refactor); PdfImport key-PDF button drop
+- E2E (agent-browser): todo add/toggle/clear, calendar grid + day panel + Google link presence (light/dark/mobile 390px), JSON paste import -> "2 questions", synthetic DataTransfer drop -> "1 valid" -> import -> "3 questions", Papers/JSON dropzones render, errors 0; tsc/eslint 0
+
+Stage Summary:
+- 4 user features shipped; DB v3 migration seamless; Google sync delivered as official no-backend paths (template links + .ics import) with honest in-UI explanation

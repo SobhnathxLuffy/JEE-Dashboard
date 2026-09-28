@@ -363,3 +363,29 @@ Work Log:
 
 Stage Summary:
 - Every app feature exercised in a real browser and cross-checked against IndexedDB storage; 4 real bugs fixed (sync config poisoning, a11y label, empty-file crash, mobile header overlap) and ~100 files of template bloat removed. Bundle-worthy deps cut nearly in half. All gates green: tsc 0, eslint 0, 35/35 unit checks, browser E2E pass, 0 console errors.
+
+---
+Task ID: 13
+Agent: main (Super Z)
+Task: Recommend + implement the best way for the user to run the app locally on Arch Linux ("AppImage vs local website — you tell me"), zero-hassle opening.
+
+Work Log:
+- Assessed options; recommended local server + PWA + systemd --user service over AppImage (app has server components: /api/ai proxy, standalone Next server; Electron/Tauri packaging = pure overhead; IndexedDB origin safety favors stable localhost origin)
+- Audited existing PWA state: manifest + sw.js + PwaRegister existed, but manifest icon was leftover scaffold "Z" logo (SVG-only), start script was bun-only
+- scripts/make_icons.py (PIL, supersampled): new app mark = coral timer ring with gap + charcoal hand + coral dot ("correct under time") on ivory — generated logo.svg (vector rewrite), icons/icon-192|512.png, maskable-512.png, apple-touch-icon.png, favicon.ico
+- manifest.webmanifest: added PNG 192/512 any + 512 maskable (kept SVG); layout.tsx metadata icons expanded (favicon.ico + 192 + SVG + apple)
+- sw.js: precache icons + favicon, CACHE bumped jee-study-v2 -> v3
+- PwaRegister: added navigator.storage.persist() (IndexedDB eviction safety)
+- package.json: prod start bun -> node (portable to any Arch box)
+- scripts/setup-local.sh: runtime checks (node>=20) -> deps (bun.lock/npm ci) -> next build -> writes ~/.config/systemd/user/jee-study.service (PORT/HOSTNAME=127.0.0.1 env, Restart=on-failure, WantedBy=default.target) -> daemon-reload/enable/restart -> health check (greps "JEE Study" up to 30s) -> ~/.local/share/applications/jee-study.desktop (chromium --app window w/ browser autodetect, xdg-open fallback) + icon; idempotent, JEE_PORT + JEE_SKIP_BUILD envs
+- scripts/uninstall-local.sh: stops/disables/removes service + launcher + icon, browser data untouched
+- README.md rewritten: features, Arch quick start, service management, manual run, data-origin rule (localhost not 127.0.0.1), privacy model table
+- Verified: bash -n both scripts; all PWA assets 200 w/ correct MIME on dev server; manifest parses (4 icons); agent-browser: page renders clean, zero console/page errors, SW registered scope /, manifest+icon links present, storage estimate 10GB quota
+- Commit 117ef74 on main. PUSH BLOCKED: no GitHub credentials in sandbox (remote origin/main = 3dcf9f8, 9+ commits behind — calendar/AI/sync/QA/deployment all local-only)
+- Produced download/jee-study-app-main.tar.gz (13MB, git archive of HEAD) so user can deploy to Arch machine immediately without the push
+
+Stage Summary:
+- Recommended + implemented: local website (systemd --user service) + installable PWA — NOT AppImage
+- One-command setup: git pull/extract -> ./scripts/setup-local.sh -> app in launcher, autostarts at login, loopback-only
+- Deliverables: scripts/setup-local.sh, scripts/uninstall-local.sh, scripts/make_icons.py, public/icons/*, new logo.svg + favicon, README guide
+- Open item: user must push local main (9+ commits incl. all batch work) to github.com/SobhnathxLuffy/JEE-Dashboard from a machine with credentials, or use the tarball

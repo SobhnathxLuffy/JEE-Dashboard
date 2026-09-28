@@ -1,176 +1,270 @@
 "use client";
 
-// ─── CalendarView: tests + 1-3-7 revisions + to-dos on one month grid ───────
-// Google Calendar sync, local-first style:
-//   • every item has an "Add to Google" pre-filled template link
-//   • .ics export (month or everything) → Google Calendar → Settings → Import
-import { useMemo, useState } from "react";
+// ─── CalendarView — a real Google-Calendar-grade calendar ────────────────────
+// Day / week / month views on a time grid, drag-to-create time blocks,
+// drag/resize events, all-day row, current-time line, .ics export — plus a
+// genuine one-way sync to Google Calendar (app → Google) via the GIS token
+// client, mirroring every item (events + optional study-plan items).
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
   Download,
-  FileText,
-  ListTree,
+  Pencil,
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { EmptyNote, PageTitle, SectionCard } from "./shared";
-import { put, del, useLive } from "@/lib/idb";
-import { downloadIcs, googleCalUrl, type CalEvent } from "@/lib/calendar";
-import { SUBJECT_SHORT, todayStr, uid, type Task } from "@/lib/types";
+import { PageTitle, SectionCard } from "./shared";
+import { put, useLive } from "@/lib/idb";
+import { downloadIcs, fmtMin, googleCalUrl, type CalEvent } from "@/lib/calendar";
+import {
+  assembleItems,
+  buildSyncItems,
+  indexByDate,
+  itemsOn,
+  type CalItem,
+} from "@/lib/calitems";
+import {
+  ensureToken,
+  getLastSync,
+  getSyncOptions,
+  isConnected,
+  itemHash,
+  mirrorSync,
+  saveLastSync,
+  setSyncOptions,
+  type SyncOptions,
+  type SyncResult,
+} from "@/lib/gcal";
+import { addDaysIso, addMonthsIso, KIND_LABEL, kindHint, periodLabel, weekStart } from "./calendar/calendar-shared";
+import { TimeGridView } from "./calendar/TimeGridView";
+import { MonthGridView } from "./calendar/MonthGridView";
+import { EventDialog, type EventDialogState } from "./calendar/EventDialog";
+import { GoogleSyncPanel } from "./calendar/GoogleSyncPanel";
+import type { CalEventRecord } from "@/lib/types";
 
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+type CalViewMode = "day" | "week" | "month";
 
-function fmtDay(date: string): string {
-  const d = new Date(`${date}T12:00:00`);
-  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+function nowMinutes(): number {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
 }
 
 export function CalendarView() {
   const tests = useLive("tests");
   const syllabus = useLive("syllabus");
   const tasks = useLive("tasks");
+  const events = useLive("cal_events");
 
-  const today = todayStr();
-  const [cursor, setCursor] = useState(() => {
+  const today = useMemo(() => {
     const d = new Date();
-    return { y: d.getFullYear(), m: d.getMonth() };
-  });
-  const [selected, setSelected] = useState(today);
-  const [newTask, setNewTask] = useState("");
+    return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
+  }, []);
+  const [view, setView] = useState<CalViewMode>("week");
+  const [anchor, setAnchor] = useState(today);
+  const [nowMin, setNowMin] = useState(nowMinutes);
+  const [dialog, setDialog] = useState<EventDialogState>({ open: false, date: today, startMin: 540, endMin: 600 });
+  const [infoItem, setInfoItem] = useState<CalItem | null>(null);
 
-  // ── events per day ────────────────────────────────────────────────────────
-  const eventsByDate = useMemo(() => {
-    const map: Record<string, CalEvent[]> = {};
-    const push = (ev: CalEvent) => {
-      (map[ev.date] ??= []).push(ev);
+  // sync state is client-only (localStorage) — hydrate asynchronously to
+  // avoid both SSR mismatch and setState-in-effect lint violations
+  const [connected, setConnected] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
+  const [options, setOptions] = useState<SyncOptions>({ includeStudyPlan: true, autoSync: true });
+  const syncingRef = useRef(false);
+  const firstSig = useRef(true);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.resolve().then(() => {
+      if (!alive) return;
+      setConnected(isConnected());
+      setLastSync(getLastSync());
+      setOptions(getSyncOptions());
+      if (window.innerWidth < 640) setView("day");
+    });
+    return () => {
+      alive = false;
     };
-    for (const t of tests) {
-      push({
-        date: t.date,
-        title: t.name,
-        detail:
-          t.score !== null
-            ? `Score ${t.score}/${t.max_score} · ${t.source}`
-            : `${t.source} · awaiting key`,
-        kind: "test",
-      });
-    }
-    for (const row of syllabus) {
-      if (!row.next_revision || row.status === "Maintenance") continue;
-      push({
-        date: row.next_revision,
-        title: `Revise: ${row.chapter}`,
-        detail: `${row.subject} · 1-3-7 loop, stage ${row.revision_stage + 1}`,
-        kind: "revision",
-      });
-    }
-    for (const t of tasks) {
-      if (!t.due_date || t.done) continue;
-      push({ date: t.due_date, title: t.text, kind: "task" });
-    }
-    return map;
-  }, [tests, syllabus, tasks]);
+  }, []);
 
-  // all events sorted by date (for "export everything")
-  const allEvents = useMemo(
-    () => Object.values(eventsByDate).flat().sort((a, b) => a.date.localeCompare(b.date)),
-    [eventsByDate]
-  );
+  // current-time line ticks every 30s
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMin(nowMinutes()), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
 
-  // month events = everything in the visible month (tests regardless of month
-  // boundary are naturally filtered by date prefix)
-  const monthPrefix = `${cursor.y}-${`${cursor.m + 1}`.padStart(2, "0")}`;
-  const monthEvents = useMemo(
-    () => allEvents.filter((e) => e.date.startsWith(monthPrefix)),
-    [allEvents, monthPrefix]
-  );
+  const input = useMemo(() => ({ events, tests, syllabus, tasks }), [events, tests, syllabus, tasks]);
+  const items = useMemo(() => assembleItems(input), [input]);
+  const dayIndex = useMemo(() => indexByDate(items), [items]);
 
-  // ── grid cells (Sunday-first, 6 weeks) ───────────────────────────────────
-  const cells = useMemo(() => {
-    const first = new Date(cursor.y, cursor.m, 1);
-    const start = new Date(first);
-    start.setDate(1 - first.getDay());
-    return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      const iso = `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
-      return { iso, day: d.getDate(), inMonth: d.getMonth() === cursor.m };
-    });
-  }, [cursor]);
+  const days = useMemo(() => {
+    if (view === "day") return [anchor];
+    const start = weekStart(anchor);
+    return Array.from({ length: 7 }, (_, i) => addDaysIso(start, i));
+  }, [view, anchor]);
 
-  function moveMonth(delta: number) {
-    setCursor((c) => {
-      const d = new Date(c.y, c.m + delta, 1);
-      return { y: d.getFullYear(), m: d.getMonth() };
-    });
+  function move(delta: number) {
+    setAnchor((a) => (view === "month" ? addMonthsIso(a, delta) : addDaysIso(a, delta * (view === "week" ? 7 : 1))));
   }
 
-  // ── selected-day slices ──────────────────────────────────────────────────
-  const dayTests = tests.filter((t) => t.date === selected);
-  const dayRevisions = syllabus.filter(
-    (r) => r.next_revision === selected && r.status !== "Maintenance"
+  function openItem(item: CalItem) {
+    if (item.editable && item.record) {
+      setDialog({ open: true, record: item.record, date: item.date, startMin: item.startMin, endMin: item.endMin });
+    } else {
+      setInfoItem(item);
+    }
+  }
+
+  async function saveMove(rec: CalEventRecord, startMin: number, endMin: number) {
+    await put("cal_events", { ...rec, start_min: startMin, end_min: endMin, updated_at: Date.now() });
+    toast.success(`Moved to ${fmtMin(startMin)}–${fmtMin(endMin)}`);
+  }
+
+  async function saveResize(rec: CalEventRecord, endMin: number) {
+    await put("cal_events", { ...rec, end_min: endMin, updated_at: Date.now() });
+    toast.success(`Ends at ${fmtMin(endMin)} now`);
+  }
+
+  function newItem() {
+    const s = Math.min(Math.round(nowMinutes() / 15) * 15, 1380);
+    setDialog({ open: true, date: anchor, startMin: s, endMin: s + 60 });
+  }
+
+  // ── Google sync ────────────────────────────────────────────────────────────
+  const syncSig = useMemo(
+    () =>
+      buildSyncItems(input, { includeStudyPlan: options.includeStudyPlan })
+        .map((i) => itemHash(i))
+        .join("|"),
+    [input, options.includeStudyPlan]
   );
-  const dayTasks = tasks.filter((t) => t.due_date === selected);
 
-  async function addTask() {
-    const text = newTask.trim();
-    if (!text) return;
-    const task: Task = { id: uid(), text, done: false, created_at: Date.now(), due_date: selected };
-    await put("tasks", task);
-    setNewTask("");
-    toast.success("Task added");
+  async function runSync(interactive: boolean) {
+    if (syncingRef.current) return;
+    if (!connected) {
+      if (interactive) toast.error("Connect Google Calendar first");
+      return;
+    }
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      const token = await ensureToken(interactive);
+      const payload = buildSyncItems(input, { includeStudyPlan: options.includeStudyPlan });
+      const res = await mirrorSync(payload, token);
+      saveLastSync(res);
+      setLastSync(res);
+      if (res.errors.length > 0) {
+        toast.warning(`Synced with ${res.errors.length} issue${res.errors.length === 1 ? "" : "s"}`, {
+          description: res.errors[0],
+        });
+      } else {
+        toast.success(
+          res.created + res.updated + res.deleted === 0
+            ? "Google Calendar is already up to date"
+            : `Google Calendar updated — ${res.created} created · ${res.updated} updated · ${res.deleted} removed`
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const res: SyncResult = { at: Date.now(), created: 0, updated: 0, deleted: 0, errors: [msg] };
+      saveLastSync(res);
+      setLastSync(res);
+      if (interactive) toast.error("Sync failed", { description: msg });
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
   }
 
-  async function toggleTask(t: Task) {
-    await put("tasks", { ...t, done: !t.done, done_at: !t.done ? Date.now() : undefined });
+  // auto-sync: debounced re-sync whenever the payload signature changes
+  useEffect(() => {
+    if (firstSig.current) {
+      firstSig.current = false;
+      return;
+    }
+    if (!connected || !options.autoSync || syncingRef.current) return;
+    const t = window.setTimeout(() => void runSync(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [syncSig, connected, options.autoSync]);
+
+  function updateOptions(o: SyncOptions) {
+    setOptions(o);
+    setSyncOptions(o);
   }
 
-  function exportMonth() {
-    const n = downloadIcs(monthEvents, `jee-study-${monthPrefix}.ics`);
-    if (n === 0) return toast.error("Nothing scheduled this month");
+  // ── .ics export ────────────────────────────────────────────────────────────
+  function toCalEvent(i: CalItem): CalEvent {
+    return {
+      date: i.date,
+      endDate: i.allDay ? i.endDate : undefined,
+      title: i.title,
+      detail: i.subtitle,
+      kind: i.kind,
+      allDay: i.allDay,
+      startMin: i.allDay ? undefined : i.startMin,
+      endMin: i.allDay ? undefined : i.endMin,
+    };
+  }
+
+  function exportIcs(scope: "period" | "all") {
+    const evs =
+      scope === "all"
+        ? items.map(toCalEvent)
+        : Array.from(new Set(days.flatMap((d) => itemsOn(dayIndex, d).map((i) => i.key))))
+            .map((k) => items.find((i) => i.key === k))
+            .filter((i): i is CalItem => Boolean(i))
+            .map(toCalEvent);
+    const n = downloadIcs(evs, scope === "all" ? "jee-study-schedule.ics" : `jee-study-${anchor}.ics`);
+    if (n === 0) return toast.error("Nothing to export in this period");
     toast.success(`${n} events exported — import the file in Google Calendar`);
   }
 
-  function exportAll() {
-    const n = downloadIcs(allEvents, "jee-study-schedule.ics");
-    if (n === 0) return toast.error("Nothing scheduled yet");
-    toast.success(`${n} events exported — import the file in Google Calendar`);
-  }
-
-  const kindChip: Record<CalEvent["kind"], string> = {
-    test: "border-primary/30 bg-primary/10 text-primary",
-    revision: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300",
-    task: "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-300",
-  };
-  const kindDot: Record<CalEvent["kind"], string> = {
-    test: "bg-primary",
-    revision: "bg-amber-500",
-    task: "bg-violet-500",
-  };
+  const viewBtn = (m: CalViewMode, label: string) => (
+    <button
+      key={m}
+      onClick={() => setView(m)}
+      aria-pressed={view === m}
+      className={cn(
+        "press px-2.5 h-8 rounded-full text-xs font-medium transition-colors",
+        view === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+      )}
+    >
+      {label}
+    </button>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageTitle
         title="Calendar"
-        subtitle="Tests, 1-3-7 revisions and to-dos on one grid — push any item to Google Calendar."
+        subtitle="Time-block your day on a real grid — then mirror everything to Google Calendar in one click."
       />
 
       <SectionCard
-        title={`${MONTHS[cursor.m]} ${cursor.y}`}
-        subtitle="coral = tests · kraft = revisions · plum = tasks"
+        title={periodLabel(view, anchor)}
+        subtitle={
+          view === "month"
+            ? "click a day to open it · click a chip for details"
+            : "drag on the grid to time-block · drag blocks to move · drag the bottom edge to resize"
+        }
         action={
-          <div className="flex items-center gap-1.5">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => moveMonth(-1)} aria-label="Previous month">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex items-center rounded-full border border-border p-0.5 mr-1">
+              {viewBtn("day", "Day")}
+              {viewBtn("week", "Week")}
+              {viewBtn("month", "Month")}
+            </div>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => move(-1)} aria-label="Previous period">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
@@ -178,216 +272,125 @@ export function CalendarView() {
               size="sm"
               className="h-8"
               onClick={() => {
-                const d = new Date();
-                setCursor({ y: d.getFullYear(), m: d.getMonth() });
-                setSelected(today);
+                setAnchor(today);
               }}
             >
               Today
             </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => moveMonth(1)} aria-label="Next month">
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => move(1)} aria-label="Next period">
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportMonth}>
-              <Download className="h-3.5 w-3.5" /> .ics (month)
+            <Button size="sm" className="h-8 gap-1.5" onClick={newItem}>
+              <Plus className="h-3.5 w-3.5" /> New event
             </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportAll}>
-              <Download className="h-3.5 w-3.5" /> .ics (all)
-            </Button>
+            <GoogleSyncPanel
+              connected={connected}
+              syncing={syncing}
+              lastSync={lastSync}
+              options={options}
+              onOptionsChange={updateOptions}
+              onSyncNow={() => void runSync(true)}
+              onConnectedChange={setConnected}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" aria-label="Export .ics">
+                  <Download className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">.ics</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportIcs("period")}>This {view}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportIcs("all")}>Everything</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       >
-        <div className="grid grid-cols-7 gap-px rounded-lg border border-border bg-border overflow-hidden">
-          {DOW.map((d) => (
-            <div key={d} className="bg-muted/60 py-1.5 text-center text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
-              {d}
-            </div>
-          ))}
-          {cells.map((c) => {
-            const evs = eventsByDate[c.iso] ?? [];
-            const isToday = c.iso === today;
-            return (
-              <button
-                key={c.iso}
-                onClick={() => setSelected(c.iso)}
-                className={cn(
-                  "min-h-[64px] md:min-h-[84px] bg-card p-1 md:p-1.5 text-left align-top transition-colors press",
-                  !c.inMonth && "bg-muted/30",
-                  c.inMonth && "hover:bg-accent/50",
-                  selected === c.iso && "ring-2 ring-inset ring-primary"
-                )}
-              >
-                <span
-                  className={cn(
-                    "inline-grid place-items-center h-5 w-5 rounded-full text-[11px] font-medium tabular-nums",
-                    isToday ? "bg-primary text-primary-foreground" : c.inMonth ? "text-foreground" : "text-muted-foreground/50"
-                  )}
-                >
-                  {c.day}
-                </span>
-                <div className="mt-0.5 space-y-0.5">
-                  {evs.slice(0, 2).map((ev, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "hidden md:block truncate rounded border px-1 py-px text-[9px] leading-3.5",
-                        kindChip[ev.kind]
-                      )}
-                    >
-                      {ev.title}
-                    </div>
-                  ))}
-                  {evs.length > 0 ? (
-                    <div className="md:hidden flex gap-0.5">
-                      {evs.slice(0, 3).map((ev, i) => (
-                        <span key={i} className={cn("h-1.5 w-1.5 rounded-full", kindDot[ev.kind])} />
-                      ))}
-                    </div>
-                  ) : null}
-                  {evs.length > 2 ? (
-                    <div className="hidden md:block text-[9px] text-muted-foreground">+{evs.length - 2} more</div>
-                  ) : null}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        {view === "month" ? (
+          <MonthGridView anchor={anchor} dayIndex={dayIndex} onDayClick={(d) => { setAnchor(d); setView("day"); }} onOpenItem={openItem} />
+        ) : (
+          <TimeGridView
+            days={days}
+            dayIndex={dayIndex}
+            nowMin={nowMin}
+            onOpenItem={openItem}
+            onDayClick={(d) => { setAnchor(d); setView("day"); }}
+            onCreateAt={(date, s, e) => setDialog({ open: true, date, startMin: s, endMin: e })}
+            onMoveEvent={(rec, s, e) => void saveMove(rec, s, e)}
+            onResizeEvent={(rec, e) => void saveResize(rec, e)}
+          />
+        )}
         <p className="text-[11px] text-muted-foreground/70 mt-3">
-          Google Calendar, the local-first way — click{" "}
-          <span className="font-medium">Add to Google</span> on any item, or download an{" "}
-          <span className="font-medium">.ics</span> and import it (calendar.google.com → Settings →
-          Import &amp; export). Re-export after rescheduling; a live two-way sync needs Google
-          OAuth, which this offline app deliberately does not have.
+          coral = tests · kraft = revisions · plum = to-dos · your events carry the color you pick.
+          Timed blocks are events you own; tests, revisions and to-dos stay in sync with their tabs.
         </p>
       </SectionCard>
 
-      {/* selected day panel */}
-      <SectionCard title={fmtDay(selected)} subtitle="everything scheduled for this day">
-        <div className="grid md:grid-cols-3 gap-5">
-          {/* tests */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium mb-2 flex items-center gap-1.5">
-              <FileText className="h-3.5 w-3.5" /> Tests
-            </div>
-            {dayTests.length === 0 ? (
-              <p className="text-xs text-muted-foreground/70">No tests logged.</p>
-            ) : (
-              <ul className="space-y-2">
-                {dayTests.map((t) => (
-                  <li key={t.id} className="rounded-lg border border-border px-3 py-2 text-sm">
-                    <div className="font-medium truncate">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t.score !== null ? `${t.score}/${t.max_score} · ` : "awaiting key · "}
-                      {t.source}
-                    </div>
-                    <GoogleLink event={{ date: t.date, title: t.name, detail: `JEE Study App — ${t.source}`, kind: "test" }} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+      <EventDialog
+        state={dialog}
+        onClose={() => setDialog((d) => ({ ...d, open: false }))}
+      />
 
-          {/* revisions */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium mb-2 flex items-center gap-1.5">
-              <ListTree className="h-3.5 w-3.5" /> 1-3-7 revisions
-            </div>
-            {dayRevisions.length === 0 ? (
-              <p className="text-xs text-muted-foreground/70">Nothing due.</p>
-            ) : (
-              <ul className="space-y-2">
-                {dayRevisions.map((r) => (
-                  <li key={r.id} className="rounded-lg border border-border px-3 py-2 text-sm">
-                    <div className="font-medium truncate">{r.chapter}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {SUBJECT_SHORT[r.subject]} · stage {r.revision_stage + 1} of 4
-                    </div>
-                    <GoogleLink
-                      event={{ date: r.next_revision!, title: `Revise: ${r.chapter}`, detail: `${r.subject} · 1-3-7 revision loop`, kind: "revision" }}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* tasks */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium mb-2">To-dos</div>
-            {dayTasks.length === 0 ? (
-              <p className="text-xs text-muted-foreground/70">No tasks for this day yet.</p>
-            ) : (
-              <ul className="space-y-1.5 mb-2">
-                {dayTasks.map((t) => (
-                  <li key={t.id} className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5">
-                    <input
-                      type="checkbox"
-                      checked={t.done}
-                      onChange={() => void toggleTask(t)}
-                      className="h-3.5 w-3.5 accent-[#c15f3c] dark:accent-[#d97757]"
-                      aria-label={t.text}
-                    />
-                    <span className={cn("text-xs flex-1 min-w-0 truncate", t.done && "line-through text-muted-foreground/60")}>
-                      {t.text}
-                    </span>
-                    <a
-                      href={googleCalUrl({ date: t.due_date!, title: t.text, kind: "task" })}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-muted-foreground/60 hover:text-primary transition-colors shrink-0"
-                      aria-label={`Add "${t.text}" to Google Calendar`}
-                      title="Add to Google Calendar"
-                    >
-                      <CalendarPlus className="h-3.5 w-3.5" />
-                    </a>
-                    <button
-                      onClick={() => void del("tasks", t.id)}
-                      className="text-[10px] text-muted-foreground/60 hover:text-red-500"
-                      aria-label="Delete task"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-1.5">
-              <Input
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void addTask()}
-                placeholder="Add a to-do for this day…"
-                className="h-8 text-xs"
-              />
-              <Button size="sm" className="h-8 px-2.5" onClick={() => void addTask()} aria-label="Add task">
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        {allEvents.length === 0 ? (
-          <div className="mt-4">
-            <EmptyNote>
-              Your calendar is empty — take a test, mark revisions in the syllabus tracker, or add
-              to-dos and the grid fills itself.
-            </EmptyNote>
-          </div>
-        ) : null}
-      </SectionCard>
+      {/* item details (derived items + quick view) */}
+      <Dialog open={infoItem !== null} onOpenChange={(o) => !o && setInfoItem(null)}>
+        <DialogContent className="sm:max-w-sm" aria-describedby={undefined}>
+          {infoItem ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 pr-6">
+                  <span className={cn("h-2.5 w-2.5 rounded-full", infoItem.allDay ? "" : "")} />
+                  {infoItem.title}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="text-[11px]">
+                    {KIND_LABEL[infoItem.kind]}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {infoItem.allDay
+                      ? infoItem.date
+                      : `${infoItem.date} · ${fmtMin(infoItem.startMin)}–${fmtMin(infoItem.endMin)}`}
+                  </span>
+                </div>
+                {infoItem.subtitle ? <p className="text-xs text-muted-foreground">{infoItem.subtitle}</p> : null}
+                {infoItem.kind === "event" ? (
+                  <p className="text-xs text-muted-foreground">Timed events sync to Google Calendar with their exact time.</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{kindHint(infoItem.kind)}</p>
+                )}
+                <a
+                  href={googleCalUrl(toCalEvent(infoItem) as CalEvent)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
+                >
+                  <CalendarPlus className="h-3 w-3" /> Add to Google (no sync setup needed)
+                </a>
+              </div>
+              <DialogFooter className="gap-2">
+                {infoItem.editable && infoItem.record ? (
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      const rec = infoItem.record!;
+                      setInfoItem(null);
+                      setDialog({ open: true, record: rec, date: rec.date, startMin: rec.start_min, endMin: rec.end_min });
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit event
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" onClick={() => setInfoItem(null)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
-  );
-}
-
-function GoogleLink({ event }: { event: CalEvent }) {
-  return (
-    <a
-      href={googleCalUrl(event)}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
-    >
-      <CalendarPlus className="h-3 w-3" aria-hidden="true" />
-      Add to Google
-    </a>
   );
 }

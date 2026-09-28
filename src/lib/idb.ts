@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type {
   ActiveSession,
+  CalEventRecord,
   DailyLog,
   FormulaEntry,
   PaperRecord,
@@ -13,9 +14,11 @@ import type {
 } from "./types";
 
 const DB_NAME = "jee-study-app";
-// v3: adds the "tasks" store (to-do list). onupgradeneeded creates any
-// missing store from STORES, so v1/v2 installs upgrade in place — no data loss.
-const DB_VERSION = 3;
+// v4: adds the "cal_events" store (real calendar events for the
+// day/week/month time-grid + Google Calendar sync). onupgradeneeded creates
+// any missing store from STORES, so v1/v2/v3 installs upgrade in place — no
+// data loss.
+const DB_VERSION = 4;
 
 export const STORES = [
   "questions",
@@ -27,6 +30,7 @@ export const STORES = [
   "kv",
   "papers",
   "tasks",
+  "cal_events",
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -46,6 +50,7 @@ type StoreValueMap = {
   kv: KVRow;
   papers: PaperRecord;
   tasks: Task;
+  cal_events: CalEventRecord;
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;

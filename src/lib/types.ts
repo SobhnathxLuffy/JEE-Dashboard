@@ -180,6 +180,28 @@ export interface DailyLog {
   chapters: string; // editable "today's chapters" line
 }
 
+/** Event color keys — mapped to the warm palette in calendar-shared.tsx. */
+export type EventColor = "coral" | "kraft" | "sage" | "plum" | "slate" | "brick";
+
+/**
+ * A user-created calendar event (time block, class, study slot, appointment…).
+ * Times are minutes-from-midnight on `date` — no timezone math anywhere.
+ * `end_date` (exclusive) is only used for multi-day all-day events.
+ */
+export interface CalEventRecord {
+  id: string;
+  title: string;
+  notes?: string;
+  date: string; // YYYY-MM-DD (start day)
+  start_min: number; // minutes from midnight, 0..1439
+  end_min: number; // minutes from midnight; editor enforces end_min > start_min
+  allDay: boolean;
+  end_date?: string; // YYYY-MM-DD exclusive — multi-day all-day spans
+  color: EventColor;
+  created_at: number;
+  updated_at: number;
+}
+
 /** A to-do item (Dashboard to-do card + Calendar). Simple, local-first. */
 export interface Task {
   id: string;

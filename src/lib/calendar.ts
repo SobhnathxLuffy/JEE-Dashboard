@@ -1,32 +1,54 @@
-// ─── Google Calendar bridge (local-first) ────────────────────────────────────
-// The app has no backend / OAuth (deliberate), so "syncing with Google
-// Calendar" is done the two ways Google officially supports without an API
-// key:
-//   1. per-event "Add to Google Calendar" template links (calendar.google.com/
-//      calendar/render?action=TEMPLATE...) — one click, event pre-filled;
-//   2. .ics export — download once, then Google Calendar → Settings →
-//      Import & export (or add the .ics as a URL feed anywhere that hosts it).
+// ─── Calendar helpers (local-first) ──────────────────────────────────────────
+// Pure functions shared by the calendar UI and the Google sync engine:
+//   • Google "Add to Calendar" template links (no setup needed)
+//   • RFC 5545 .ics export (Google Calendar → Settings → Import)
+// Both understand all-day AND timed events. Times are minutes-from-midnight —
+// no timezone math; floating local times are the correct RFC/Google encoding.
 import { addDays } from "./types";
 
-export type CalKind = "test" | "revision" | "task";
+export type CalKind = "test" | "revision" | "task" | "event";
 
 export interface CalEvent {
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (start)
   title: string;
   detail?: string;
   kind: CalKind;
+  /** true (or undefined) → all-day; false → timed block */
+  allDay?: boolean;
+  startMin?: number; // minutes from midnight
+  endMin?: number; // minutes from midnight (exclusive end of the block)
+  /** exclusive end date for multi-day all-day events (default: date + 1) */
+  endDate?: string;
 }
 
-/** All-day "Add to Google Calendar" pre-filled link (end date is exclusive). */
+function pad(n: number): string {
+  return `${n}`.padStart(2, "0");
+}
+
+function minsToHHMM(min: number): string {
+  return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+}
+
+/** "2026-09-28" + 540 → "2026-09-28T09:00:00" (floating local time) */
+export function localStamp(date: string, min: number): string {
+  return `${date}T${minsToHHMM(min)}:00`;
+}
+
+/** All-day "Add to Google Calendar" pre-filled link (end date is exclusive).
+ *  Timed events use floating local datetimes — Google renders them in the
+ *  viewer's calendar timezone, which is exactly what we want. */
 export function googleCalUrl(ev: CalEvent): string {
+  const enc = encodeURIComponent;
+  if (ev.allDay === false && typeof ev.startMin === "number" && typeof ev.endMin === "number") {
+    const s = localStamp(ev.date, ev.startMin).replace(/[-:]/g, "");
+    const e = localStamp(ev.date, ev.endMin).replace(/[-:]/g, "");
+    const details = ev.detail ? `&details=${enc(ev.detail)}` : "";
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${enc(ev.title)}&dates=${s}/${e}${details}`;
+  }
   const start = ev.date.replace(/-/g, "");
-  const end = addDays(ev.date, 1).replace(/-/g, "");
-  const details = ev.detail ? `&details=${encodeURIComponent(ev.detail)}` : "";
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${start}/${end}${details}`;
-}
-
-function icsDate(d: string): string {
-  return d.replace(/-/g, "");
+  const end = (ev.endDate ?? addDays(ev.date, 1)).replace(/-/g, "");
+  const details = ev.detail ? `&details=${enc(ev.detail)}` : "";
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${enc(ev.title)}&dates=${start}/${end}${details}`;
 }
 
 function icsEsc(s: string): string {
@@ -37,7 +59,9 @@ function icsEsc(s: string): string {
     .replace(/\r?\n/g, "\\n");
 }
 
-/** RFC 5545 VCALENDAR text — Google Calendar imports it losslessly. */
+/** RFC 5545 VCALENDAR text — Google Calendar imports it losslessly.
+ *  All-day: VALUE=DATE. Timed: floating local DATETIME (no Z, no TZID) —
+ *  every compliant client interprets floating times in local time. */
 export function buildIcs(evs: CalEvent[]): string {
   const stamp = new Date()
     .toISOString()
@@ -52,14 +76,21 @@ export function buildIcs(evs: CalEvent[]): string {
     "X-WR-CALNAME:JEE Study Plan",
   ];
   evs.forEach((ev, i) => {
-    lines.push(
-      "BEGIN:VEVENT",
-      `UID:${ev.date}-${ev.kind}-${i}-${stamp}@jee-study-app`,
-      `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${icsDate(ev.date)}`,
-      `DTEND;VALUE=DATE:${icsDate(addDays(ev.date, 1))}`,
-      `SUMMARY:${icsEsc(ev.title)}`
-    );
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${ev.date}-${ev.kind}-${i}-${stamp}@jee-study-app`);
+    lines.push(`DTSTAMP:${stamp}`);
+    if (ev.allDay === false && typeof ev.startMin === "number" && typeof ev.endMin === "number") {
+      const dur = Math.max(0, ev.endMin - ev.startMin);
+      lines.push(`DTSTART:${localStamp(ev.date, ev.startMin).replace(/[-:]/g, "")}`);
+      const endAbs = ev.startMin + dur;
+      const endDate = endAbs >= 1440 ? addDays(ev.date, Math.floor(endAbs / 1440)) : ev.date;
+      lines.push(`DTEND:${localStamp(endDate, endAbs % 1440).replace(/[-:]/g, "")}`);
+    } else {
+      const end = ev.endDate ?? addDays(ev.date, 1);
+      lines.push(`DTSTART;VALUE=DATE:${ev.date.replace(/-/g, "")}`);
+      lines.push(`DTEND;VALUE=DATE:${end.replace(/-/g, "")}`);
+    }
+    lines.push(`SUMMARY:${icsEsc(ev.title)}`);
     if (ev.detail) lines.push(`DESCRIPTION:${icsEsc(ev.detail)}`);
     lines.push("END:VEVENT");
   });
@@ -77,4 +108,19 @@ export function downloadIcs(evs: CalEvent[], filename: string): number {
   a.click();
   URL.revokeObjectURL(url);
   return evs.length;
+}
+
+/** "09:30" from minutes-from-midnight. */
+export function fmtMin(min: number): string {
+  return minsToHHMM(min);
+}
+
+/** minutes-from-midnight from "HH:MM" (or null when malformed). */
+export function parseHHMM(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (h > 23 || mm > 59) return null;
+  return h * 60 + mm;
 }

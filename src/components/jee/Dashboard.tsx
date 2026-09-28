@@ -26,6 +26,7 @@ import type { NavController } from "./App";
 import { ChartNote, ChartTip, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO } from "./shared";
 import { CountUp, Stagger, StaggerItem } from "./motion";
 import { TodoCard } from "./TodoCard";
+import { CoachCard } from "./ai/CoachCard";
 import { del, kvGet, kvSet, put, useLive } from "@/lib/idb";
 import {
   amberQueue,
@@ -266,6 +267,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
           />
         </StaggerItem>
       </Stagger>
+
+      {/* AI Coach — diagnosis + 7-day plan from real data (todos, calendar, syllabus, tests) */}
+      <CoachCard tests={tests} responses={responses} syllabus={syllabus} />
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* C3: backup nudge — slim amber banner above the Today card */}

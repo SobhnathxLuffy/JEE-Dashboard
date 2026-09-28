@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
 import { AnswerBits, CH, ChartNote, ChartTip, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO } from "./shared";
 import { CountUp, Stagger, StaggerItem } from "./motion";
+import { ExplainDialog, explainTargetOf, type ExplainTarget } from "./ai/ExplainDialog";
 import { useLive } from "@/lib/idb";
 import { tagOf } from "@/lib/analytics";
 import {
@@ -175,6 +176,9 @@ export function PerformanceView({ nav }: { nav: NavController }) {
     }
     return out.sort((a, b) => a.label.localeCompare(b.label));
   }, [scoped, tests]);
+
+  // AI: doubt buster for any wrong row in the drill-down
+  const [explainTarget, setExplainTarget] = useState<ExplainTarget | null>(null);
 
   // score timeline — every scored test. Whole-paper %, or the subject's raw marks
   // when a subject filter is on (test max is whole-paper, so % would lie).
@@ -618,6 +622,14 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                           status="wrong"
                         />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setExplainTarget(explainTargetOf(r, r.q_no ?? "?"))}
+                        className="press mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-primary transition-colors"
+                        aria-label="Explain this question with AI"
+                      >
+                        ✦ Explain with AI
+                      </button>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-1">
                       <span className="text-[11px] text-muted-foreground/70 max-w-[160px] truncate" title={t?.name}>
@@ -640,6 +652,9 @@ export function PerformanceView({ nav }: { nav: NavController }) {
           </ul>
         )}
       </SectionCard>
+
+      {/* AI explanation dialog for the drill-down rows */}
+      <ExplainDialog target={explainTarget} onOpenChange={(o) => !o && setExplainTarget(null)} />
     </div>
   );
 }

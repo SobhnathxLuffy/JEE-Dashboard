@@ -31,6 +31,7 @@ import {
   Moon,
   Monitor,
   Check,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -65,6 +66,7 @@ import { todayStr } from "@/lib/types";
 import { northStar } from "@/lib/analytics";
 
 import { DashboardView } from "./Dashboard";
+import { AISettingsDialog } from "./ai/AISettingsDialog";
 import { QuestionBankView } from "./QuestionBank";
 import { TestCreateView, type TestCreatePrefill } from "./TestCreate";
 import { PlayerView } from "./Player";
@@ -139,6 +141,7 @@ export function AppRoot() {
   const [testPrefill, setTestPrefill] = useState<TestCreatePrefill | undefined>(undefined);
   const [paperForImport, setPaperForImport] = useState<PaperRecord | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const pdfBlobRef = useRef<Blob | null>(null);
   const seededRef = useRef(false);
   const dataVersion = useDataVersion();
@@ -306,6 +309,14 @@ export function AppRoot() {
             <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 shrink-0">
               {/* E1: exam countdown chip — wraps below the north-star on mobile */}
               <CountdownChip />
+              <button
+                onClick={() => setAiOpen(true)}
+                className="press h-8 w-8 grid place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                aria-label="AI settings"
+                title="AI settings — connect your AI Credits / provider key"
+              >
+                <Sparkles className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
+              </button>
               <ThemeToggle />
               <div className="text-right">
                 <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
@@ -438,6 +449,9 @@ export function AppRoot() {
           <span>Every test logged &amp; tagged within 24h, or it didn&apos;t happen.</span>
         </div>
       </footer>
+
+      {/* AI settings — BYO OpenAI-compatible endpoint (AI Credits etc.) */}
+      <AISettingsDialog open={aiOpen} onOpenChange={setAiOpen} />
 
       {/* C5: discard confirmation — answers are lost, only the attempt record stays */}
       <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>

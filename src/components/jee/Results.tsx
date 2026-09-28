@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
 import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
 import { CountUp, ScoreRing, Stagger, StaggerItem } from "./motion";
+import { ExplainDialog, explainTargetOf, type ExplainTarget } from "./ai/ExplainDialog";
 import { useLive, put, get, getAll } from "@/lib/idb";
 import { marksFor } from "@/lib/scoring";
 import { fileToDataUrl } from "@/lib/image";
@@ -207,6 +208,9 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
   const [viewPhoto, setViewPhoto] = useState<{ url: string; title: string; id: string } | null>(
     null
   );
+
+  // AI: per-question doubt buster
+  const [explainTarget, setExplainTarget] = useState<ExplainTarget | null>(null);
 
   const rows = useMemo(() => {
     const own = responses.filter((r) => r.test_id === testId);
@@ -764,6 +768,16 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                         />
                       </div>
 
+                      {/* AI: step-by-step doubt buster (streams once, cached after) */}
+                      <button
+                        type="button"
+                        onClick={() => setExplainTarget(explainTargetOf(r, qNo))}
+                        className="press mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-primary transition-colors"
+                        aria-label={`Explain Q${qNo} with AI`}
+                      >
+                        ✦ Explain with AI
+                      </button>
+
                       {/* D7: one-line note (optional, blur-save) */}
                       <Input
                         defaultValue={r.note ?? ""}
@@ -891,6 +905,9 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           </ul>
         )}
       </SectionCard>
+
+      {/* AI explanation dialog — works for bank + PDF questions alike */}
+      <ExplainDialog target={explainTarget} onOpenChange={(o) => !o && setExplainTarget(null)} />
 
       {/* D8: full-size solution photo viewer */}
       <Dialog open={viewPhoto !== null} onOpenChange={(open) => !open && setViewPhoto(null)}>

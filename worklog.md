@@ -303,3 +303,23 @@ Work Log:
 
 Stage Summary:
 - The Calendar tab is now a genuine Google Calendar replacement surface: three views, free time-blocking by drag, move/resize, all-day aggregation of the study plan, .ics fallback — and a real one-way sync that mirrors the app onto Google Calendar with zero-config idempotence and repair-on-change. User needs only their own OAuth Client ID (wizard walks them through it, origin copy-paste ready).
+
+---
+Task ID: 13
+Agent: main (Super Z)
+Task: AI layer — "Explain this question", PDF → Question Bank extraction, AI Study Coach (todos + tomorrow's calendar + syllabus coverage + per-test performance), with BYO-provider infrastructure (user's AI Credits API, ₹50 budget).
+
+Work Log:
+- idb.ts v5 + "ai_cache" (explanations/coach reports — re-views never re-bill) + "ai_usage" (per-call tokens + ₹ estimate); types.ts AiCacheRecord/AiUsageRecord
+- lib/ai.ts: AISettings in localStorage (device-local key), MODEL_PRESETS with ₹/M table (DeepSeek V3 recommended, Gemini Flash, GPT-4o-mini, Haiku), callAI (stream SSE + jsonMode with response_format-retry fallback), friendly error mapping (401/402/404/429/5xx/timeout), ai_cache get/set/del, extractPdfText (pdf.js text layer, 600k cap), chunkText (page-boundary 14k chunks), parseLooseJson (fence/protection)
+- /api/ai route: stateless OpenAI-compatible proxy (baseUrl+apiKey+model per request, nothing stored/logs server-side), stream pass-through, jsonMode 400-retry, 280s timeout, friendly errors
+- AISettingsDialog (header ✦ button): base URL/key/model + preset chips + Test connection (validates draft, shows model) + monthly usage readout (calls, ≈₹, per-feature); key never leaves device
+- ExplainDialog (Results per-question rows + Performance wrong-list rows): streaming plain-text solution framed as "Why my answer is wrong" using the user's own answer; cached by response id (re-open = instant + "cached · free"), Regenerate; prompt knows subject/chapter/options/MCQ-letter vs numerical/pdf-mode
+- PdfExtractPanel (QuestionBank "✦ PDF → Bank"): FileDrop → pdf.js text (scanned PDFs rejected honestly) → chunked jsonMode calls with live progress → every model row validated through the SAME parseQuestionsJson as manual JSON import (moved validator to lib/question-json.ts shared) → review table (per-row subject/chapter edit, delete/undo, error reasons) → bulkPut with "AI extract · <paper>" source; stale-closure fix for source name
+- CoachCard (Dashboard, full-width): gathers snapshot (pending/overdue to-dos, tomorrow's events+tests+revisions+tasks, per-subject syllabus coverage incl. notStartedList with tiers, red/amber chapters, repeated failures, last 12 scored tests, error tags, exam countdown) → lib/coach.ts strict-JSON prompt → summary + weak chapters + syllabus-gap chips + insights + 7-day plan grid (times, subjects, kind) → "Add plan to Calendar" writes CalEventRecords (study=slate/revision=kraft/test=coral)
+- BUG found by E2E: Dashboard's dataVersion remount reset the "added" flag → repeated clicks duplicated plan events (15 instead of 5). Fixed with IDB-derived idempotency marker ("AI Coach plan <ts>" in notes) — button shows "✓ In Calendar" and re-adds are blocked + toast
+- scripts/mock-ai-provider.ts: OpenAI-compatible mock on :3030 (routes by system marker: OK ping/extraction/coach/explain, SSE streaming, usage fields) → full-stack E2E without real credits
+- E2E (agent-browser): settings→test connection→save; coach report from real data→5 blocks on Calendar grid; PDF drop→2 questions extracted→imported (verified sources/types/answers in IDB); CBT run→wrong answer→Explain streams→cache hit free; usage log 4 features ≈₹0.07; dark mode + 390px mobile; fresh-load console 0 errors; tsc 0 / eslint 0
+
+Stage Summary:
+- Three genuinely-useful AI features shipped on BYO OpenAI-compatible infrastructure, local-first intact: key in localStorage, results/usage in IndexedDB, zero server-side state, on-demand only (no background spend). DeepSeek V3 default advice: ~₹0.12/explanation, ~₹0.3/coach report, ~₹0.3-0.6 per 20-page extraction — ₹50 covers months.

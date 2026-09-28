@@ -1,0 +1,1075 @@
+     1→"use client";
+     2→
+     3→// ─── Post-test analysis: score, accuracy, per-question review, error tags ───
+     4→// Sprint D review side: paper-numbered questions + subject chips + next-untagged
+     5→// jump (D3), retry-wrong as a new CBT session (D1), key-later self-mark with
+     6→// live score recompute (D4), per-question notes (D7) and solution photos (D8).
+     7→import { useMemo, useRef, useState, useEffect } from "react";
+     8→import { Button } from "@/components/ui/button";
+     9→import { Input } from "@/components/ui/input";
+    10→import { Badge } from "@/components/ui/badge";
+    11→import { Label } from "@/components/ui/label";
+    12→import { Switch } from "@/components/ui/switch";
+    13→import { Textarea } from "@/components/ui/textarea";
+    14→import {
+    15→  Dialog,
+    16→  DialogContent,
+    17→  DialogDescription,
+    18→  DialogFooter,
+    19→  DialogHeader,
+    20→  DialogTitle,
+    21→} from "@/components/ui/dialog";
+    22→import { toast } from "sonner";
+    23→import { cn } from "@/lib/utils";
+    24→import type { NavController } from "./App";
+    25→import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+    26→import { CountUp, ScoreRing, Stagger, StaggerItem } from "./motion";
+    27→import { useLive, put, get, getAll } from "@/lib/idb";
+    28→import { marksFor } from "@/lib/scoring";
+    29→import { fileToDataUrl } from "@/lib/image";
+    30→import {
+    31→  applyLateKey,
+    32→  extractKeyTextFromPdf,
+    33→  paperRangeOf,
+    34→  parseAnswerKey,
+    35→  parseCell,
+    36→} from "@/lib/pdf-key";
+    37→import {
+    38→  ERROR_TAGS,
+    39→  SUBJECTS,
+    40→  SUBJECT_SHORT,
+    41→  fmtSecs,
+    42→  uid,
+    43→  type ActiveSession,
+    44→  type ErrorTag,
+    45→  type PdfKeyEntry,
+    46→  type ResponseRecord,
+    47→  type Subject,
+    48→} from "@/lib/types";
+    49→
+    50→const TAG_CLS: Record<ErrorTag, string> = {
+    51→  C: "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
+    52→  F: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
+    53→  A: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
+    54→  R: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
+    55→  T: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
+    56→  G: "bg-stone-200 text-stone-700 border-stone-300 dark:bg-stone-500/15 dark:text-stone-300 dark:border-stone-500/30",
+    57→};
+    58→
+    59→const LK_MAX_CELLS = 300; // grid render cap inside the late-key dialog
+    60→
+    61→type StatusFilter = "all" | "wrong" | "untagged";
+    62→type SubjectFilter = "all" | Subject;
+    63→
+    64→export function ResultsView({ testId, nav }: { testId: string; nav: NavController }) {
+    65→  const tests = useLive("tests");
+    66→  const responses = useLive("responses");
+    67→  const [filter, setFilter] = useState<StatusFilter>("all");
+    68→  const [subjectFilter, setSubjectFilter] = useState<SubjectFilter>("all");
+    69→
+    70→  // D3 "next untagged" jump state
+    71→  const [highlightId, setHighlightId] = useState<string | null>(null);
+    72→  const jumpIdxRef = useRef(0);
+    73→  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    74→
+    75→  // D7: first-save toast bookkeeping (per response, this visit)
+    76→  const notedOnceRef = useRef<Set<string>>(new Set());
+    77→
+    78→  const test = useMemo(() => tests.find((t) => t.id === testId), [tests, testId]);
+    79→
+    80→  // ── late answer-key upload: paste / key-PDF / grid → full re-score ──
+    81→  const [lkOpen, setLkOpen] = useState(false);
+    82→  const [lkText, setLkText] = useState("");
+    83→  const [lkGrid, setLkGrid] = useState<Record<number, string>>({});
+    84→  const [lkOptionNums, setLkOptionNums] = useState(false);
+    85→  const [lkTol, setLkTol] = useState("0");
+    86→  const [lkBusy, setLkBusy] = useState(false);
+    87→  const [lkFileName, setLkFileName] = useState<string | null>(null);
+    88→  const lkKeyFileRef = useRef<HTMLInputElement>(null);
+    89→  const lkEditedRef = useRef<Set<number>>(new Set());
+    90→
+    91→  const lkParsed = useMemo(() => parseAnswerKey(lkText), [lkText]);
+    92→  const lkRange = test?.pdf_meta ? paperRangeOf(test.pdf_meta) : null;
+    93→  const lkNos = useMemo(() => {
+    94→    if (!lkRange) return [];
+    95→    const out: number[] = [];
+    96→    for (let n = lkRange.first; n <= lkRange.last; n++) out.push(n);
+    97→    return out;
+    98→  }, [lkRange]);
+    99→  const lkRenderCells = lkNos.slice(0, LK_MAX_CELLS);
+   100→
+   101→  // paste/key-PDF parse → bulk-fill the grid (hand-typed cells always win)
+   102→  useEffect(() => {
+   103→    if (lkParsed.length === 0) return;
+   104→    setLkGrid((g) => {
+   105→      const next = { ...g };
+   106→      for (const k of lkParsed) {
+   107→        if (lkEditedRef.current.has(k.no)) continue;
+   108→        next[k.no] = k.bonus ? "bonus" : k.answers ? k.answers.join("/") : k.answer;
+   109→      }
+   110→      return next;
+   111→    });
+   112→  }, [lkParsed]);
+   113→
+   114→  const lkGridKey = useMemo(() => {
+   115→    const out: PdfKeyEntry[] = [];
+   116→    for (const no of lkNos) {
+   117→      const raw = lkGrid[no];
+   118→      if (raw === undefined) continue;
+   119→      const r = parseCell(raw, lkOptionNums);
+   120→      if (r.kind === "entry") out.push({ ...r.entry, no });
+   121→    }
+   122→    return out;
+   123→  }, [lkNos, lkGrid, lkOptionNums]);
+   124→
+   125→  const lkMissing = useMemo(() => {
+   126→    const have = new Set(lkGridKey.map((k) => k.no));
+   127→    return lkNos.filter((no) => !have.has(no));
+   128→  }, [lkGridKey, lkNos]);
+   129→
+   130→  function setLkCell(no: number, raw: string) {
+   131→    lkEditedRef.current.add(no);
+   132→    setLkGrid((g) => {
+   133→      const next = { ...g };
+   134→      if (raw.trim() === "") delete next[no];
+   135→      else next[no] = raw;
+   136→      return next;
+   137→    });
+   138→  }
+   139→
+   140→  function openLateKey() {
+   141→    if (!test?.pdf_meta) return;
+   142→    // prefill: existing key (replace flow) + stored tolerance
+   143→    const g: Record<number, string> = {};
+   144→    for (const k of test.pdf_meta.key) {
+   145→      g[k.no] = k.bonus ? "bonus" : k.answers ? k.answers.join("/") : k.answer;
+   146→    }
+   147→    lkEditedRef.current = new Set();
+   148→    setLkGrid(g);
+   149→    setLkText("");
+   150→    setLkFileName(null);
+   151→    setLkOptionNums(false);
+   152→    setLkTol(String(test.pdf_meta.tolerance ?? 0));
+   153→    setLkOpen(true);
+   154→  }
+   155→
+   156→  async function onLkKeyFile(e: React.ChangeEvent<HTMLInputElement>) {
+   157→    const file = e.target.files?.[0];
+   158→    e.target.value = "";
+   159→    if (!file) return;
+   160→    try {
+   161→      const text = await extractKeyTextFromPdf(file);
+   162→      const parsed = parseAnswerKey(text);
+   163→      if (parsed.length < 2) {
+   164→        toast.error("No readable text — this key looks scanned. Paste it instead.");
+   165→        return;
+   166→      }
+   167→      setLkFileName(file.name);
+   168→      setLkText(text);
+   169→      toast.success(`${parsed.length} keys extracted from key PDF`);
+   170→    } catch (err) {
+   171→      toast.error(`Could not read key PDF: ${String(err)}`);
+   172→    }
+   173→  }
+   174→
+   175→  async function applyLkKey() {
+   176→    if (!test) return;
+   177→    if (lkGridKey.length === 0) {
+   178→      toast.error("The key grid is empty — paste the key, upload a key PDF, or fill cells");
+   179→      return;
+   180→    }
+   181→    if (lkMissing.length > 0) {
+   182→      const ok = window.confirm(
+   183→        `${lkMissing.length} of ${lkNos.length} questions have no key (${lkMissing
+   184→          .slice(0, 8)
+   185→          .join(", ")}${lkMissing.length > 8 ? "…" : ""}). They score 0 — attempted or not. Apply anyway?`
+   186→      );
+   187→      if (!ok) return;
+   188→    }
+   189→    setLkBusy(true);
+   190→    try {
+   191→      const res = await applyLateKey(test.id, lkGridKey, Number(lkTol) || 0);
+   192→      setLkOpen(false);
+   193→      toast.success(
+   194→        `Key applied — ${res.scoredRows} answer${res.scoredRows === 1 ? "" : "s"} re-checked, score ${res.score}/${res.max}`
+   195→      );
+   196→    } catch (err) {
+   197→      toast.error(`Could not apply the key: ${String(err)}`);
+   198→    } finally {
+   199→      setLkBusy(false);
+   200→    }
+   201→  }
+   202→
+   203→  // D8: shared photo file input + full-size viewer dialog
+   204→  const photoInputRef = useRef<HTMLInputElement>(null);
+   205→  const photoTargetRef = useRef<string | null>(null);
+   206→  const [photoDragId, setPhotoDragId] = useState<string | null>(null);
+   207→  const [viewPhoto, setViewPhoto] = useState<{ url: string; title: string; id: string } | null>(
+   208→    null
+   209→  );
+   210→
+   211→  const rows = useMemo(() => {
+   212→    const own = responses.filter((r) => r.test_id === testId);
+   213→    // review reads in paper/test order — q_no is the stored number, position is the fallback
+   214→    return [...own].sort((a, b) => (a.q_no ?? 0) - (b.q_no ?? 0));
+   215→  }, [responses, testId]);
+   216→
+   217→  // D4: key-later tests stay in self-mark mode for their whole life (score is
+   218→  // recomputed to a number on the first toggle, so the flag is the discriminator)
+   219→  const selfMark = test?.pdf_meta?.key_later === true;
+   220→
+   221→  // D3: displayed number = the paper/test number stored at submit (q_no),
+   222→  // falling back to the row's stable position — never re-indexed by filters.
+   223→  const qNoOf = useMemo(() => {
+   224→    const m = new Map<string, number>();
+   225→    rows.forEach((r, i) => m.set(r.id, r.q_no ?? i + 1));
+   226→    return m;
+   227→  }, [rows]);
+   228→
+   229→  const stats = useMemo(() => {
+   230→    const attempted = rows.filter((r) => r.attempted);
+   231→    const correct = rows.filter((r) => r.correct === true);
+   232→    const wrong = rows.filter((r) => r.attempted && r.correct === false);
+   233→    const untagged = wrong.filter((r) => !r.error_tag).length;
+   234→    const time = rows.reduce((a, r) => a + (r.time_spent || 0), 0);
+   235→    return {
+   236→      attempted: attempted.length,
+   237→      correct: correct.length,
+   238→      wrong: wrong.length,
+   239→      untagged,
+   240→      time,
+   241→      accuracy: attempted.length ? Math.round((correct.length / attempted.length) * 100) : 0,
+   242→      attemptRate: rows.length ? Math.round((attempted.length / rows.length) * 100) : 0,
+   243→      pending: attempted.filter((r) => r.correct === null).length,
+   244→    };
+   245→  }, [rows]);
+   246→
+   247→  const shown = useMemo(() => {
+   248→    let out = rows;
+   249→    if (subjectFilter !== "all") out = out.filter((r) => r.subject === subjectFilter);
+   250→    if (filter === "wrong") out = out.filter((r) => r.attempted && r.correct === false);
+   251→    if (filter === "untagged")
+   252→      out = out.filter((r) => r.attempted && r.correct === false && !r.error_tag);
+   253→    return out;
+   254→  }, [rows, filter, subjectFilter]);
+   255→
+   256→  // D1: retry candidates — wrong + unattempted-but-keyed (key-later: attempted only)
+   257→  const retryIds = useMemo(() => {
+   258→    if (!test?.question_ids) return [];
+   259→    const keyLater = test.pdf_meta?.key_later === true;
+   260→    const candidates = rows.filter((r) => {
+   261→      if (keyLater) return r.attempted;
+   262→      if (r.attempted) return r.correct === false;
+   263→      return r.correct_answer !== "?"; // skipped but keyed → retry it too
+   264→    });
+   265→    const want = new Set(candidates.map((r) => r.question_id));
+   266→    return test.question_ids.filter((id) => want.has(id)); // test order preserved
+   267→  }, [test, rows]);
+   268→
+   269→  function startRetry() {
+   270→    if (!test || retryIds.length === 0) return;
+   271→    const retryRows = rows.filter((r) => retryIds.includes(r.question_id));
+   272→    const session: ActiveSession = {
+   273→      key: "active",
+   274→      test_id: uid(),
+   275→      mode: "cbt",
+   276→      test_type: "mixed",
+   277→      name: `Retry — ${test.name}`,
+   278→      subject_order: SUBJECTS.filter((s) => retryRows.some((r) => r.subject === s)),
+   279→      question_ids: retryIds,
+   280→      duration_min: Math.max(1, retryIds.length), // 1 min per question rule
+   281→      started_at: Date.now(),
+   282→      answers: {},
+   283→      marked: [],
+   284→      current: 0,
+   285→      q_times: {},
+   286→      q_entered_at: Date.now(),
+   287→    };
+   288→    nav.startSession(session);
+   289→  }
+   290→
+   291→  // D3: cycle through wrong+untagged rows, scroll + highlight each in turn
+   292→  const untaggedIds = useMemo(
+   293→    () =>
+   294→      rows
+   295→        .filter((r) => r.attempted && r.correct === false && !r.error_tag)
+   296→        .map((r) => r.id),
+   297→    [rows]
+   298→  );
+   299→
+   300→  function jumpToNextUntagged() {
+   301→    if (untaggedIds.length === 0) return;
+   302→    const idx = jumpIdxRef.current % untaggedIds.length;
+   303→    jumpIdxRef.current += 1;
+   304→    const id = untaggedIds[idx];
+   305→    const el = document.getElementById(`resp-${id}`);
+   306→    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+   307→    setHighlightId(id);
+   308→    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+   309→    highlightTimerRef.current = setTimeout(() => setHighlightId(null), 2500);
+   310→  }
+   311→
+   312→  /** Fresh read + merge — the row prop may be stale when several edits race. */
+   313→  async function patchResponse(id: string, patch: Partial<ResponseRecord>) {
+   314→    const fresh = await get("responses", id);
+   315→    if (!fresh) return null;
+   316→    const next = { ...fresh, ...patch };
+   317→    await put("responses", next);
+   318→    return next;
+   319→  }
+   320→
+   321→  async function tagResponse(r: ResponseRecord, tag: ErrorTag) {
+   322→    const updated = await patchResponse(r.id, { error_tag: tag });
+   323→    if (!updated) return;
+   324→    if (tag === "F") {
+   325→      const existing = await get("formula", `${updated.test_id}:${updated.question_id}`);
+   326→      if (!existing) {
+   327→        await put("formula", {
+   328→          id: `${updated.test_id}:${updated.question_id}`,
+   329→          test_id: updated.test_id,
+   330→          question_id: updated.question_id,
+   331→          subject: updated.subject,
+   332→          chapter: updated.chapter,
+   333→          snippet: updated.question_snippet,
+   334→          created_at: Date.now(),
+   335→        });
+   336→        toast.success("Added to formula sheet (F-tag)");
+   337→      }
+   338→    } else {
+   339→      // if retagged away from F, remove from formula sheet
+   340→      const existing = await get("formula", `${updated.test_id}:${updated.question_id}`);
+   341→      if (existing) {
+   342→        const { del } = await import("@/lib/idb");
+   343→        await del("formula", existing.id);
+   344→      }
+   345→    }
+   346→  }
+   347→
+   348→  // D7: one-line note, saved on blur (Enter blurs). Toast on the first save of each note only.
+   349→  async function saveNote(r: ResponseRecord, value: string) {
+   350→    const v = value.trim();
+   351→    if ((r.note ?? "") === v) return; // nothing changed
+   352→    await patchResponse(r.id, { note: v === "" ? undefined : v });
+   353→    if (!notedOnceRef.current.has(r.id)) {
+   354→      notedOnceRef.current.add(r.id);
+   355→      toast.success("Note saved");
+   356→    }
+   357→  }
+   358→
+   359→  // D8: photo attach/replace via the shared hidden file input
+   360→  function pickPhoto(responseId: string) {
+   361→    photoTargetRef.current = responseId;
+   362→    photoInputRef.current?.click();
+   363→  }
+   364→
+   365→  async function attachPhoto(file: File, responseId: string) {
+   366→    try {
+   367→      const dataUrl = await fileToDataUrl(file, 1000);
+   368→      const updated = await patchResponse(responseId, { photo: dataUrl });
+   369→      if (updated) toast.success("Solution photo attached");
+   370→    } catch {
+   371→      toast.error("Could not read that image — try a JPG/PNG");
+   372→    }
+   373→  }
+   374→
+   375→  async function onPhotoFile(e: React.ChangeEvent<HTMLInputElement>) {
+   376→    const file = e.target.files?.[0];
+   377→    e.target.value = ""; // allow re-picking the same file later
+   378→    const targetId = photoTargetRef.current;
+   379→    photoTargetRef.current = null;
+   380→    if (!file || !targetId) return;
+   381→    await attachPhoto(file, targetId);
+   382→  }
+   383→
+   384→  async function removePhoto(id: string) {
+   385→    await patchResponse(id, { photo: undefined });
+   386→    setViewPhoto(null);
+   387→    toast.success("Solution photo removed");
+   388→  }
+   389→
+   390→  // D4: set the mark, then recompute the whole TestRecord from ALL responses
+   391→  async function applyMark(r: ResponseRecord, correct: boolean | null) {
+   392→    if (!test) return;
+   393→    const updated = await patchResponse(r.id, { correct });
+   394→    if (!updated) return;
+   395→    const all = (await getAll("responses")).filter((x) => x.test_id === testId);
+   396→    const subjectScores: Record<Subject, number> = {
+   397→      Physics: 0,
+   398→      Chemistry: 0,
+   399→      Mathematics: 0,
+   400→    };
+   401→    for (const x of all) subjectScores[x.subject] += marksFor(x.attempted, x.correct);
+   402→    const score = SUBJECTS.reduce((a, s) => a + subjectScores[s], 0);
+   403→    const attemptedRows = all.filter((x) => x.attempted);
+   404→    const allMarked =
+   405→      attemptedRows.length > 0 && attemptedRows.every((x) => x.correct !== null);
+   406→    const wasAllMarked = rows
+   407→      .filter((x) => x.attempted)
+   408→      .every((x) => x.correct !== null);
+   409→    await put("tests", { ...test, score, subject_scores: subjectScores });
+   410→    if (!wasAllMarked && allMarked) {
+   411→      toast.success(`Score finalised: ${score}/${test.max_score}`);
+   412→    }
+   413→  }
+   414→
+   415→  if (!test) {
+   416→    return (
+   417→      <div className="space-y-4">
+   418→        <PageTitle title="Test analysis" />
+   419→        <EmptyNote>
+   420→          Test not found.{" "}
+   421→          <button className="underline" onClick={() => nav.go("dashboard")}>
+   422→            Back to dashboard
+   423→          </button>
+   424→        </EmptyNote>
+   425→      </div>
+   426→    );
+   427→  }
+   428→
+   429→  const markedCount = stats.attempted - stats.pending;
+   430→
+   431→  return (
+   432→    <div className="space-y-6">
+   433→      <PageTitle
+   434→        title={test.name}
+   435→        subtitle={`${test.date} · ${test.source} · ${test.duration_min} min · ${test.type} test`}
+   436→        right={
+   437→          <Button variant="outline" size="sm" onClick={() => nav.go("dashboard")}>
+   438→            ← Dashboard
+   439→          </Button>
+   440→        }
+   441→      />
+   442→
+   443→      {/* score hero — ring draws in, number settles, subject split at a glance */}
+   444→      <div className="rounded-xl border border-border bg-card card-shadow px-5 py-4 flex items-center gap-6 flex-wrap">
+   445→        {test.score === null ? (
+   446→          <div className="flex items-center gap-3 text-sm text-amber-700 dark:text-amber-300 py-2">
+   447→            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+   448→            Score pending — add the answer key or finish self-marking below.
+   449→          </div>
+   450→        ) : (
+   451→          <>
+   452→            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={92}>
+   453→              <div className="text-center leading-none">
+   454→                <div className="font-mono tabular-nums text-xl font-bold text-foreground">
+   455→                  <CountUp value={test.score} />
+   456→                </div>
+   457→                <div className="text-[10px] font-mono text-muted-foreground mt-0.5">/{test.max_score}</div>
+   458→              </div>
+   459→            </ScoreRing>
+   460→            <div className="flex flex-wrap items-center gap-x-7 gap-y-3 min-w-0">
+   461→              <div>
+   462→                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Accuracy</div>
+   463→                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">
+   464→                  <CountUp value={stats.accuracy} format={(v) => `${Math.round(v)}%`} />
+   465→                </div>
+   466→              </div>
+   467→              <div>
+   468→                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Attempted</div>
+   469→                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">
+   470→                  {stats.attempted}
+   471→                  <span className="text-muted-foreground/60 text-sm">/{rows.length}</span>
+   472→                </div>
+   473→              </div>
+   474→              <div>
+   475→                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Time</div>
+   476→                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">{fmtSecs(stats.time)}</div>
+   477→              </div>
+   478→              <div className="flex items-center gap-3 flex-wrap">
+   479→                {SUBJECTS.map((s) => (
+   480→                  <div key={s} className="flex items-center gap-1.5">
+   481→                    <span
+   482→                      className={cn(
+   483→                        "inline-block w-2 h-2 rounded-full",
+   484→                        s === "Physics" ? "bg-amber-500" : s === "Chemistry" ? "bg-sage-600 dark:bg-sage-400" : "bg-stone-800 dark:bg-stone-300"
+   485→                      )}
+   486→                      aria-hidden="true"
+   487→                    />
+   488→                    <span className="text-[11px] text-muted-foreground">{SUBJECT_SHORT[s]}</span>
+   489→                    <span className="font-mono tabular-nums text-sm font-semibold text-foreground">
+   490→                      {test.subject_scores[s] ?? 0}
+   491→                    </span>
+   492→                  </div>
+   493→                ))}
+   494→              </div>
+   495→            </div>
+   496→          </>
+   497→        )}
+   498→      </div>
+   499→
+   500→      <Stagger className="grid grid-cols-2 md:grid-cols-5 gap-3">
+   501→        <StaggerItem>
+   502→          <StatCard
+   503→            label="Score"
+   504→            value={test.score === null ? "pending" : `${test.score}/${test.max_score}`}
+   505→            tone={(test.score ?? 0) >= test.max_score * 0.5 ? "good" : "warn"}
+   506→            hint={
+   507→              selfMark && stats.pending > 0
+   508→                ? `${stats.pending} mark${stats.pending > 1 ? "s" : ""} pending`
+   509→                : undefined
+   510→            }
+   511→          />
+   512→        </StaggerItem>
+   513→        <StaggerItem>
+   514→          <StatCard label="Accuracy" value={`${stats.accuracy}%`} hint={`${stats.correct}/${stats.attempted}`} />
+   515→        </StaggerItem>
+   516→        <StaggerItem>
+   517→          <StatCard label="Attempt rate" value={`${stats.attemptRate}%`} hint={`${stats.attempted}/${rows.length}`} />
+   518→        </StaggerItem>
+   519→        <StaggerItem>
+   520→          <StatCard
+   521→            label="Negatives"
+   522→            value={`−${stats.wrong}`}
+   523→            tone={stats.wrong > 5 ? "bad" : "default"}
+   524→            hint={`score would be ${(test.score ?? 0) + stats.wrong} with guesses skipped`}
+   525→          />
+   526→        </StaggerItem>
+   527→        <StaggerItem>
+   528→          <StatCard label="Time used" value={fmtSecs(stats.time)} />
+   529→        </StaggerItem>
+   530→      </Stagger>
+   531→
+   532→      {/* D4: self-mark banner (key-later tests) */}
+   533→      {selfMark ? (
+   534→        stats.pending > 0 || test.score === null ? (
+   535→          <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3 flex-wrap">
+   536→            <span>
+   537→              <strong>Self-mark mode</strong> — mark each attempted question below. The score
+   538→              recomputes as you go.
+   539→            </span>
+   540→            <Badge variant="outline" className="border-amber-400 dark:border-amber-500/50 text-amber-800 dark:text-amber-300 whitespace-nowrap">
+   541→              pending marks: {markedCount}/{stats.attempted}
+   542→            </Badge>
+   543→          </div>
+   544→        ) : (
+   545→          <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/25 rounded-lg px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300">
+   546→            <strong>Self-mark complete</strong> — score {test.score}/{test.max_score}. Toggles
+   547→            stay live if a mark needs correcting.
+   548→          </div>
+   549→        )
+   550→      ) : null}
+   551→
+   552→      {/* D1: retry-wrong as a fresh CBT session */}
+   553→      {test.question_ids ? (
+   554→        <div className="bg-card border border-border card-shadow rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
+   555→          <Button
+   556→            onClick={startRetry}
+   557→            disabled={retryIds.length === 0}
+   558→            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px] px-5 font-semibold"
+   559→          >
+   560→            ↻ Retry wrong ({retryIds.length})
+   561→          </Button>
+   562→          <p className="text-xs text-muted-foreground min-w-0 flex-1">
+   563→            Wrong + skipped-but-keyed questions, test order, 1 min each. The fastest way to prove
+   564→            the fix stuck.
+   565→          </p>
+   566→        </div>
+   567→      ) : test.pdf_meta ? (
+   568→        <div className="bg-card border border-border card-shadow rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
+   569→          <Button disabled className="min-h-[44px] px-5">
+   570→            ↻ Retry wrong
+   571→          </Button>
+   572→          <p className="text-xs text-muted-foreground/70">
+   573→            PDF test — re-upload the PDF to retry this set.
+   574→          </p>
+   575→        </div>
+   576→      ) : null}
+   577→
+   578→      {/* late answer-key upload — gave the test before having the key? score it now */}
+   579→      {test.pdf_meta ? (
+   580→        <div
+   581→          className={cn(
+   582→            "rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap border",
+   583→            test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   584→              ? "bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25"
+   585→              : "bg-card border-border card-shadow"
+   586→          )}
+   587→        >
+   588→          <Button
+   589→            onClick={openLateKey}
+   590→            className={cn(
+   591→              "min-h-[44px] px-5 font-semibold",
+   592→              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   593→                ? "bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+   594→                : ""
+   595→            )}
+   596→            variant={
+   597→              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   598→                ? "default"
+   599→                : "outline"
+   600→            }
+   601→          >
+   602→            {test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   603→              ? "Add answer key & score"
+   604→              : "Replace answer key"}
+   605→          </Button>
+   606→          <p
+   607→            className={cn(
+   608→              "text-xs min-w-0 flex-1",
+   609→              test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   610→                ? "text-amber-800 dark:text-amber-300"
+   611→                : "text-muted-foreground"
+   612→            )}
+   613→          >
+   614→            {test.pdf_meta.key_later || test.pdf_meta.key.length === 0
+   615→              ? "Gave the test without a key? Paste or upload the official key NOW — every answer gets re-checked and scored automatically. No self-marking needed."
+   616→              : "Paste a corrected key and the whole test is re-scored in place."}
+   617→          </p>
+   618→        </div>
+   619→      ) : null}
+   620→
+   621→      {stats.untagged > 0 ? (
+   622→        <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3 flex-wrap">
+   623→          <span>
+   624→            <strong>{stats.untagged} wrong answers</strong> still untagged. Tag them now — the
+   625→            dashboard&apos;s error-tag chart and formula sheet only work if every mistake is
+   626→            classified.
+   627→          </span>
+   628→          <div className="flex gap-2">
+   629→            <Button
+   630→              size="sm"
+   631→              variant="outline"
+   632→              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-500/10"
+   633→              onClick={jumpToNextUntagged}
+   634→            >
+   635→              ↦ Next untagged ({untaggedIds.length})
+   636→            </Button>
+   637→            <Button
+   638→              size="sm"
+   639→              variant="outline"
+   640→              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-500/10"
+   641→              onClick={() => setFilter("untagged")}
+   642→            >
+   643→              Show untagged
+   644→            </Button>
+   645→          </div>
+   646→        </div>
+   647→      ) : null}
+   648→
+   649→      <SectionCard
+   650→        title="Per-question review"
+   651→        subtitle="your answer vs correct, time spent, and the tag that explains the mistake"
+   652→        action={
+   653→          <div className="flex flex-col items-end gap-1.5">
+   654→            <div className="flex gap-1.5">
+   655→              {(["all", "wrong", "untagged"] as const).map((f) => (
+   656→                <button
+   657→                  key={f}
+   658→                  onClick={() => setFilter(f)}
+   659→                  className={cn(
+   660→                    "press px-2.5 py-1 rounded-full text-xs transition-colors",
+   661→                    filter === f
+   662→                      ? "bg-foreground text-background"
+   663→                      : "bg-muted text-muted-foreground hover:bg-accent"
+   664→                  )}
+   665→                >
+   666→                  {f}
+   667→                </button>
+   668→              ))}
+   669→            </div>
+   670→            <div className="flex gap-1.5" role="group" aria-label="Filter by subject">
+   671→              {(["all", "Physics", "Chemistry", "Mathematics"] as const).map((s) => (
+   672→                <button
+   673→                  key={s}
+   674→                  onClick={() => setSubjectFilter(s)}
+   675→                  aria-pressed={subjectFilter === s}
+   676→                  className={cn(
+   677→                    "press px-2.5 py-1 rounded-full text-xs transition-colors min-h-[28px]",
+   678→                    subjectFilter === s
+   679→                      ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
+   680→                      : "bg-muted text-muted-foreground hover:bg-accent"
+   681→                  )}
+   682→                >
+   683→                  {s === "all" ? "All" : SUBJECT_SHORT[s]}
+   684→                </button>
+   685→              ))}
+   686→            </div>
+   687→          </div>
+   688→        }
+   689→      >
+   690→        {/* D8 shared hidden input — one file picker serves every row */}
+   691→        <input
+   692→          ref={photoInputRef}
+   693→          type="file"
+   694→          accept="image/*"
+   695→          className="hidden"
+   696→          onChange={(e) => void onPhotoFile(e)}
+   697→        />
+   698→
+   699→        {shown.length === 0 ? (
+   700→          <EmptyNote>Nothing to show for this filter.</EmptyNote>
+   701→        ) : (
+   702→          <ul className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+   703→            {shown.map((r) => {
+   704→              const qNo = qNoOf.get(r.id) ?? 1;
+   705→              return (
+   706→                <li
+   707→                  key={r.id}
+   708→                  id={`resp-${r.id}`}
+   709→                  className={cn(
+   710→                    // left stripe = outcome at a glance (scannability rule:
+   711→                    // alignment + color carry the state, not badges alone)
+   712→                    "rounded-lg p-3 transition-shadow border border-l-4",
+   713→                    highlightId === r.id
+   714→                      ? "border-amber-400 border-l-amber-500 bg-amber-50 ring-2 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
+   715→                      : !r.attempted
+   716→                        ? "border-border border-l-stone-300 dark:border-l-stone-600 bg-stone-50/60 dark:bg-stone-500/5"
+   717→                        : r.correct === true
+   718→                          ? "border-sage-100 border-l-sage-600 bg-sage-50/50 dark:border-sage-500/20 dark:border-l-sage-500 dark:bg-sage-500/5"
+   719→                          : r.correct === false
+   720→                            ? "border-red-100 border-l-red-500 bg-red-50/40 dark:border-red-500/20 dark:border-l-red-500 dark:bg-red-500/5"
+   721→                            : "border-amber-100 border-l-amber-500 bg-amber-50/40 dark:border-amber-500/20 dark:border-l-amber-500 dark:bg-amber-500/5" // pending self-mark
+   722→                  )}
+   723→                >
+   724→                  <div className="flex items-start justify-between gap-3 flex-wrap">
+   725→                    <div className="min-w-0 flex-1">
+   726→                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+   727→                        <span className="text-xs font-bold text-muted-foreground">
+   728→                          Q{qNo}
+   729→                        </span>
+   730→                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+   731→                          {r.type === "numerical" ? "NUM" : "MCQ"}
+   732→                        </Badge>
+   733→                        <span className="text-[11px] text-muted-foreground/70">{r.chapter}</span>
+   734→                        <span className="text-[11px] text-muted-foreground/70">{fmtSecs(r.time_spent)}</span>
+   735→                        {!r.attempted ? (
+   736→                          <Badge variant="outline" className="text-[10px] border-border text-muted-foreground/70">
+   737→                            unattempted
+   738→                          </Badge>
+   739→                        ) : r.correct === true ? (
+   740→                          <Badge className="text-[10px] bg-sage-600 dark:bg-sage-500 hover:bg-sage-600 dark:hover:bg-sage-500 text-white dark:text-sage-950 border-0">
+   741→                            +4
+   742→                          </Badge>
+   743→                        ) : r.correct === false ? (
+   744→                          <Badge className="text-[10px] bg-red-600 hover:bg-red-600 text-white border-0">
+   745→                            −1
+   746→                          </Badge>
+   747→                        ) : (
+   748→                          <Badge className="text-[10px] bg-amber-500 hover:bg-amber-500 text-white border-0">
+   749→                            pending
+   750→                          </Badge>
+   751→                        )}
+   752→                      </div>
+   753→                      <p className="text-sm text-foreground">{r.question_snippet}</p>
+   754→                      <div className="mt-1.5">
+   755→                        <AnswerBits
+   756→                          selected={r.selected}
+   757→                          correctAnswer={r.correct_answer}
+   758→                          type={r.type}
+   759→                          options={r.options}
+   760→                          isPdf={r.question_id.startsWith("pdf:")}
+   761→                          tolerance={test.pdf_meta?.tolerance ?? 0}
+   762→                          attempted={r.attempted}
+   763→                          status={r.correct === true ? "right" : r.correct === false ? "wrong" : null}
+   764→                        />
+   765→                      </div>
+   766→
+   767→                      {/* D7: one-line note (optional, blur-save) */}
+   768→                      <Input
+   769→                        defaultValue={r.note ?? ""}
+   770→                        placeholder="Add a one-line note — the actual insight (optional)"
+   771→                        className="mt-2 h-8 text-xs bg-transparent"
+   772→                        maxLength={280}
+   773→                        aria-label={`Note for Q${qNo}`}
+   774→                        onBlur={(e) => void saveNote(r, e.target.value)}
+   775→                        onKeyDown={(e) => {
+   776→                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+   777→                        }}
+   778→                      />
+   779→
+   780→                      {/* D8: solution photo — thumbnail opens full size */}
+   781→                      {r.photo ? (
+   782→                        <button
+   783→                          type="button"
+   784→                          onClick={() => setViewPhoto({ url: r.photo!, title: `Q${qNo} · ${r.chapter}`, id: r.id })}
+   785→                          className="mt-2 block rounded-md overflow-hidden border border-border hover:border-emerald-500 dark:hover:border-emerald-400 transition-colors"
+   786→                          aria-label={`View solution photo for Q${qNo}`}
+   787→                        >
+   788→                          <img
+   789→                            src={r.photo}
+   790→                            alt={`Solution photo for Q${qNo}`}
+   791→                            className="h-14 w-20 object-cover"
+   792→                          />
+   793→                        </button>
+   794→                      ) : (
+   795→                        <Button
+   796→                          type="button"
+   797→                          variant="outline"
+   798→                          size="sm"
+   799→                          className={cn(
+   800→                            "mt-2 h-8 text-xs",
+   801→                            photoDragId === r.id && "border-primary bg-primary/5 text-primary"
+   802→                          )}
+   803→                          onDragOver={(e) => {
+   804→                            if (e.dataTransfer.types.includes("Files")) {
+   805→                              e.preventDefault();
+   806→                              setPhotoDragId(r.id);
+   807→                            }
+   808→                          }}
+   809→                          onDragLeave={() => setPhotoDragId((id) => (id === r.id ? null : id))}
+   810→                          onDrop={(e) => {
+   811→                            e.preventDefault();
+   812→                            setPhotoDragId(null);
+   813→                            const f = e.dataTransfer.files?.[0];
+   814→                            if (!f) return;
+   815→                            if (f.type.startsWith("image/")) void attachPhoto(f, r.id);
+   816→                            else toast.error("Drop an image file (JPG/PNG)");
+   817→                          }}
+   818→                          onClick={() => pickPhoto(r.id)}
+   819→                        >
+   820→                          📎 Attach solution photo
+   821→                        </Button>
+   822→                      )}
+   823→                    </div>
+   824→
+   825→                    {/* D4: self-mark toggles (key-later tests only) */}
+   826→                    {selfMark ? (
+   827→                      <div className="flex flex-col gap-1 items-end shrink-0">
+   828→                        <span className="text-[10px] uppercase text-muted-foreground/70 font-medium">mark it</span>
+   829→                        <div className="flex gap-1.5">
+   830→                          <button
+   831→                            type="button"
+   832→                            onClick={() => void applyMark(r, r.correct === true ? null : true)}
+   833→                            className={cn(
+   834→                              "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
+   835→                              r.correct === true
+   836→                                ? "bg-sage-700 dark:bg-sage-500 text-white dark:text-sage-950 border-sage-700 dark:border-sage-500"
+   837→                                : "bg-card border-border text-muted-foreground hover:border-sage-500 dark:hover:border-sage-400 hover:text-foreground"
+   838→                            )}
+   839→                          >
+   840→                            ✓ Correct
+   841→                          </button>
+   842→                          <button
+   843→                            type="button"
+   844→                            onClick={() => void applyMark(r, r.correct === false ? null : false)}
+   845→                            className={cn(
+   846→                              "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
+   847→                              r.correct === false
+   848→                                ? "bg-red-600 text-white border-red-600"
+   849→                                : "bg-card border-border text-muted-foreground hover:border-red-400 hover:text-foreground"
+   850→                            )}
+   851→                          >
+   852→                            ✗ Wrong
+   853→                          </button>
+   854→                        </div>
+   855→                      </div>
+   856→                    ) : null}
+   857→
+   858→                    {/* tag UI: wrong-marked rows only (self-marked wrongs flow in here too) */}
+   859→                    {r.attempted && r.correct === false ? (
+   860→                      <div className="flex flex-col gap-1 items-end shrink-0">
+   861→                        <span className="text-[10px] uppercase text-muted-foreground/70 font-medium">tag it</span>
+   862→                        <div className="flex gap-1">
+   863→                          {ERROR_TAGS.map((t) => (
+   864→                            <button
+   865→                              key={t.code}
+   866→                              title={t.hint}
+   867→                              onClick={() => void tagResponse(r, t.code)}
+   868→                              className={cn(
+   869→                                "w-7 h-7 rounded-md border text-xs font-bold transition-colors",
+   870→                                r.error_tag === t.code
+   871→                                  ? TAG_CLS[t.code] + " ring-2 ring-offset-1 ring-stone-300 dark:ring-stone-500 dark:ring-offset-stone-950"
+   872→                                  : "bg-card border-border text-muted-foreground/60 hover:text-foreground hover:border-stone-400 dark:hover:border-stone-500"
+   873→                              )}
+   874→                            >
+   875→                              {t.code}
+   876→                            </button>
+   877→                          ))}
+   878→                        </div>
+   879→                        {r.error_tag ? (
+   880→                          <span className="text-[10px] text-muted-foreground/70">
+   881→                            {ERROR_TAGS.find((t) => t.code === r.error_tag)?.label}
+   882→                            {r.error_tag === "F" ? " → formula sheet ✓" : ""}
+   883→                          </span>
+   884→                        ) : null}
+   885→                      </div>
+   886→                    ) : null}
+   887→                  </div>
+   888→                </li>
+   889→              );
+   890→            })}
+   891→          </ul>
+   892→        )}
+   893→      </SectionCard>
+   894→
+   895→      {/* D8: full-size solution photo viewer */}
+   896→      <Dialog open={viewPhoto !== null} onOpenChange={(open) => !open && setViewPhoto(null)}>
+   897→        <DialogContent className="max-w-2xl">
+   898→          <DialogHeader>
+   899→            <DialogTitle>Solution photo — {viewPhoto?.title}</DialogTitle>
+   900→            <DialogDescription>
+   901→              Attached to this question&apos;s review. Replace or remove it below.
+   902→            </DialogDescription>
+   903→          </DialogHeader>
+   904→          {viewPhoto ? (
+   905→            <img
+   906→              src={viewPhoto.url}
+   907→              alt={`Solution photo, ${viewPhoto.title}`}
+   908→              className="w-full h-auto max-h-[65vh] object-contain rounded-md border border-border bg-white"
+   909→            />
+   910→          ) : null}
+   911→          <DialogFooter className="gap-2 sm:gap-0">
+   912→            <Button
+   913→              variant="outline"
+   914→              size="sm"
+   915→              onClick={() => {
+   916→                if (viewPhoto) pickPhoto(viewPhoto.id);
+   917→                setViewPhoto(null);
+   918→              }}
+   919→            >
+   920→              Replace
+   921→            </Button>
+   922→            <Button
+   923→              variant="ghost"
+   924→              size="sm"
+   925→              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+   926→              onClick={() => viewPhoto && void removePhoto(viewPhoto.id)}
+   927→            >
+   928→              Remove
+   929→            </Button>
+   930→          </DialogFooter>
+   931→        </DialogContent>
+   932→      </Dialog>
+   933→
+   934→      {/* ── late answer-key dialog: paste / key-PDF / grid → re-score ── */}
+   935→      <Dialog open={lkOpen} onOpenChange={(o) => !lkBusy && setLkOpen(o)}>
+   936→        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+   937→          <DialogHeader>
+   938→            <DialogTitle>Answer key — after the test</DialogTitle>
+   939→            <DialogDescription>
+   940→              Paste the official key, upload a digital key PDF, or type into the grid. Applying it
+   941→              re-checks every answer of this test against the same rules as live scoring
+   942→              (+4 / −1, multi-answer keys, bonus questions, ±tolerance).
+   943→            </DialogDescription>
+   944→          </DialogHeader>
+   945→
+   946→          <Textarea
+   947→            value={lkText}
+   948→            onChange={(e) => setLkText(e.target.value)}
+   949→            rows={5}
+   950→            placeholder={"1. A\n2. C\n7. B or C\n9. bonus\n5. 42"}
+   951→            className="font-mono text-sm"
+   952→          />
+   953→
+   954→          <div className="flex flex-wrap items-center gap-3">
+   955→            <input
+   956→              ref={lkKeyFileRef}
+   957→              type="file"
+   958→              accept="application/pdf"
+   959→              className="hidden"
+   960→              onChange={(e) => void onLkKeyFile(e)}
+   961→            />
+   962→            <Button
+   963→              type="button"
+   964→              variant="outline"
+   965→              size="sm"
+   966→              onClick={() => lkKeyFileRef.current?.click()}
+   967→            >
+   968→              {lkFileName
+   969→                ? `✓ Key PDF: ${lkFileName.slice(0, 28)}`
+   970→                : "Upload answer-key PDF (digital)"}
+   971→            </Button>
+   972→            <div className="flex items-center gap-2">
+   973→              <Switch
+   974→                id="lk-opt-nums"
+   975→                checked={lkOptionNums}
+   976→                onCheckedChange={setLkOptionNums}
+   977→                aria-label="Key uses option numbers 1 to 4"
+   978→              />
+   979→              <Label htmlFor="lk-opt-nums" className="text-xs cursor-pointer">
+   980→                Key uses option numbers (1)–(4)
+   981→              </Label>
+   982→            </div>
+   983→            <div className="flex items-center gap-2 ml-auto">
+   984→              <Label htmlFor="lk-tol" className="text-xs whitespace-nowrap">
+   985→                Tolerance ±
+   986→              </Label>
+   987→              <Input
+   988→                id="lk-tol"
+   989→                value={lkTol}
+   990→                onChange={(e) => setLkTol(e.target.value)}
+   991→                inputMode="decimal"
+   992→                className="h-8 w-20 text-xs"
+   993→              />
+   994→            </div>
+   995→          </div>
+   996→
+   997→          {/* key grid over the paper range */}
+   998→          {lkRenderCells.length > 0 ? (
+   999→            <>
+  1000→              <div className="flex items-center gap-2 flex-wrap">
+  1001→                <Badge className="bg-emerald-700 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">
+  1002→                  {lkGridKey.length} key{lkGridKey.length === 1 ? "" : "s"} in grid
+  1003→                </Badge>
+  1004→                {lkMissing.length === 0 ? (
+  1005→                  <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+  1006→                    full coverage of Q{lkRange?.first}–{lkRange?.last}
+  1007→                  </Badge>
+  1008→                ) : (
+  1009→                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+  1010→                    missing: {lkMissing.slice(0, 10).join(", ")}
+  1011→                    {lkMissing.length > 10 ? ` +${lkMissing.length - 10}` : ""}
+  1012→                  </Badge>
+  1013→                )}
+  1014→                {lkNos.length > LK_MAX_CELLS ? (
+  1015→                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+  1016→                    showing first {LK_MAX_CELLS} cells
+  1017→                  </Badge>
+  1018→                ) : null}
+  1019→              </div>
+  1020→              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5 max-h-64 overflow-y-auto p-0.5">
+  1021→                {lkRenderCells.map((no) => {
+  1022→                  const raw = lkGrid[no] ?? "";
+  1023→                  const res = raw.trim() === "" ? null : parseCell(raw, lkOptionNums);
+  1024→                  const invalid = res !== null && res.kind === "invalid";
+  1025→                  return (
+  1026→                    <div key={no} className="space-y-0.5">
+  1027→                      <div
+  1028→                        className={cn(
+  1029→                          "text-[10px] leading-none",
+  1030→                          invalid ? "text-red-500 font-semibold" : "text-muted-foreground/70"
+  1031→                        )}
+  1032→                      >
+  1033→                        Q{no}
+  1034→                      </div>
+  1035→                      <Input
+  1036→                        value={raw}
+  1037→                        onChange={(e) => setLkCell(no, e.target.value)}
+  1038→                        className={cn(
+  1039→                          "h-8 text-xs font-mono px-1.5 text-center",
+  1040→                          invalid && "border-red-400 focus-visible:ring-red-300"
+  1041→                        )}
+  1042→                        aria-label={`Key for question ${no}`}
+  1043→                        placeholder="—"
+  1044→                      />
+  1045→                    </div>
+  1046→                  );
+  1047→                })}
+  1048→              </div>
+  1049→            </>
+  1050→          ) : (
+  1051→            <EmptyNote>
+  1052→              This test has no question range on record — paste the key above and the parsed
+  1053→              entries will show up here.
+  1054→            </EmptyNote>
+  1055→          )}
+  1056→
+  1057→          <DialogFooter className="gap-2 sm:gap-0">
+  1058→            <Button variant="outline" size="sm" disabled={lkBusy} onClick={() => setLkOpen(false)}>
+  1059→              Cancel
+  1060→            </Button>
+  1061→            <Button
+  1062→              size="sm"
+  1063→              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
+  1064→              disabled={lkBusy || lkGridKey.length === 0}
+  1065→              onClick={() => void applyLkKey()}
+  1066→            >
+  1067→              {lkBusy ? "Scoring…" : `Apply key & score (${lkGridKey.length})`}
+  1068→            </Button>
+  1069→          </DialogFooter>
+  1070→        </DialogContent>
+  1071→      </Dialog>
+  1072→    </div>
+  1073→  );
+  1074→}
+  1075→

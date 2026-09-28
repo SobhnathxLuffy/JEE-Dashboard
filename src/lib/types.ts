@@ -212,6 +212,33 @@ export interface Task {
   due_date?: string; // YYYY-MM-DD, optional
 }
 
+/** ─── AI layer (local-first too: cache + usage live in IndexedDB) ────────── */
+
+/**
+ * Cached AI output. `id` is `${feature}:${key}` where key is a stable content
+ * hash (e.g. response id for explanations, "latest" for the coach report) —
+ * re-viewing an explanation or a report never re-bills the API.
+ */
+export interface AiCacheRecord {
+  id: string;
+  feature: "explain" | "coach";
+  key: string;
+  payload: unknown; // explanation text or parsed coach report JSON
+  model: string;
+  created_at: number;
+}
+
+/** One AI call's token usage — powers the "≈ spent this month" readout. */
+export interface AiUsageRecord {
+  id: string;
+  feature: "explain" | "coach" | "extract" | "test";
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_inr: number; // rough estimate from the model's ₹/M table
+  created_at: number;
+}
+
 /** In-progress test session (survives refresh via IndexedDB) */
 export interface ActiveSession {
   key: "active";

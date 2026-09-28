@@ -66,6 +66,7 @@ export interface TestRecord {
   id: string;
   date: string; // YYYY-MM-DD
   created_at: number;
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
   name: string;
   source: string; // in-app / pdf filename / Abhyas / SATHEE / Allen / other
   type: TestType;
@@ -126,6 +127,7 @@ export interface ResponseRecord {
   correct_answer: number | string;
   type: QuestionType;
   options?: string[];
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
 }
 
 export type ChapterStatus =
@@ -156,6 +158,7 @@ export interface SyllabusRow {
   last_revised: string | null; // YYYY-MM-DD
   revision_stage: number; // 0..3 index into REVISION_INTERVALS_DAYS
   next_revision: string | null; // YYYY-MM-DD
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
 }
 
 export interface FormulaEntry {
@@ -167,9 +170,11 @@ export interface FormulaEntry {
   snippet: string;
   learned?: boolean; // "Mark learned" state
   created_at: number;
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
 }
 
 export interface DailyLog {
+  id: string; // equals date (YYYY-MM-DD) — store keyPath is "id"
   date: string; // YYYY-MM-DD (key)
   blocks: {
     math: boolean;
@@ -178,6 +183,7 @@ export interface DailyLog {
     recall: boolean;
   };
   chapters: string; // editable "today's chapters" line
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
 }
 
 /** Event color keys — mapped to the warm palette in calendar-shared.tsx. */
@@ -210,6 +216,7 @@ export interface Task {
   created_at: number;
   done_at?: number;
   due_date?: string; // YYYY-MM-DD, optional
+  updated_at?: number; // sync stamp (maintained by the idb write layer)
 }
 
 /** ─── AI layer (local-first too: cache + usage live in IndexedDB) ────────── */

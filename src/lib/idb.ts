@@ -15,12 +15,33 @@ import type {
   TestRecord,
 } from "./types";
 
-const DB_NAME = "jee-study-app";
+const DB_NAME_BASE = "jee-study-app";
 // v5: adds "ai_cache" (explanations / coach reports — re-views never re-bill)
 // and "ai_usage" (per-call token + ₹ estimate log). onupgradeneeded creates
 // any missing store from STORES, so v1–v4 installs upgrade in place — no
 // data loss.
-const DB_VERSION = 5;
+// v6: adds "sync_tombstones" — delete markers the sync engine replays so a
+// deletion on one device removes the record on every other device.
+const DB_VERSION = 6;
+
+// ?device=<name> opens a separate IndexedDB under the same origin — used by
+// the two-tab sync E2E (two "devices" in one browser) and by anyone who wants
+// an isolated scratch profile. Invisible in normal use. Sync state that
+// logically belongs to the database (pull/push cursors) keys off this too.
+const DB_DEVICE = (() => {
+  if (typeof window === "undefined") return null;
+  try {
+    const d = new URLSearchParams(window.location.search).get("device");
+    return d && /^[a-z0-9-]{1,24}$/i.test(d) ? d.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+})();
+
+const DB_NAME = DB_DEVICE ? `${DB_NAME_BASE}-${DB_DEVICE}` : DB_NAME_BASE;
+
+/** Identity of THIS device's database — sync cursors are namespaced with it. */
+export const DB_DEVICE_ID = DB_DEVICE;
 
 export const STORES = [
   "questions",
@@ -35,9 +56,41 @@ export const STORES = [
   "cal_events",
   "ai_cache",
   "ai_usage",
+  "sync_tombstones",
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
+
+/**
+ * Stores replicated by the optional Supabase sync. Papers are excluded on
+ * purpose — the PDF blobs are megabytes and stay device-local (backup via
+ * the Data tab still carries them). kv / ai_* are device-local by design
+ * (session state, provider keys, token accounting).
+ */
+export const SYNCED_STORES = [
+  "questions",
+  "tests",
+  "responses",
+  "syllabus",
+  "formula",
+  "daily_log",
+  "tasks",
+  "cal_events",
+] as const;
+
+type SyncedStore = (typeof SYNCED_STORES)[number];
+
+export function isSyncedStore(s: StoreName): s is SyncedStore {
+  return (SYNCED_STORES as readonly string[]).includes(s);
+}
+
+/** Delete marker — replayed by the sync engine so deletes propagate. */
+export interface TombstoneRow {
+  key: string; // `${store}:${id}`
+  store: SyncedStore;
+  id: string;
+  deleted_at: number; // epoch ms — doubles as the row's updated_at upstream
+}
 
 interface KVRow {
   key: string;
@@ -57,6 +110,7 @@ type StoreValueMap = {
   cal_events: CalEventRecord;
   ai_cache: AiCacheRecord;
   ai_usage: AiUsageRecord;
+  sync_tombstones: TombstoneRow;
 };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -108,6 +162,31 @@ export function subscribeLive(fn: Listener): () => void {
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────────────
+
+/**
+ * Sync timestamp policy for synced stores:
+ *  - default (touch): every app write bumps `updated_at` → the sync engine
+ *    sees it as a change to push.
+ *  - `{ touch: false }`: keeps the incoming stamp and only stamps if missing —
+ *    used by the sync engine (applying remote rows must not re-stamp, or
+ *    changes ping-pong forever) and by backup restore (a backup is history,
+ *    not a new edit).
+ */
+export interface PutOptions {
+  touch?: boolean;
+}
+
+function stamp<T>(store: StoreName, value: T, opts?: PutOptions): T {
+  if (!isSyncedStore(store)) return value;
+  const rec = value as { updated_at?: number };
+  if (opts?.touch === false) {
+    if (typeof rec.updated_at !== "number") rec.updated_at = Date.now();
+  } else {
+    rec.updated_at = Date.now();
+  }
+  return value;
+}
+
 export async function getAll<S extends StoreName>(
   store: S
 ): Promise<StoreValueMap[S][]> {
@@ -128,28 +207,68 @@ export async function get<S extends StoreName>(
 
 export async function put<S extends StoreName>(
   store: S,
-  value: StoreValueMap[S]
+  value: StoreValueMap[S],
+  opts?: PutOptions
 ): Promise<void> {
-  await tx(store, "readwrite", (os) => os.put(value));
+  await tx(store, "readwrite", (os) => os.put(stamp(store, value, opts)));
   notify();
 }
 
 export async function bulkPut<S extends StoreName>(
   store: S,
-  values: StoreValueMap[S][]
+  values: StoreValueMap[S][],
+  opts?: PutOptions
 ): Promise<void> {
   const db = await openDB();
+  const stamped = values.map((v) => stamp(store, v, opts));
   await new Promise<void>((resolve, reject) => {
     const t = db.transaction(store, "readwrite");
     const os = t.objectStore(store);
-    for (const v of values) os.put(v);
+    for (const v of stamped) os.put(v);
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });
   notify();
 }
 
+/**
+ * Delete a record. On synced stores a tombstone is recorded first so the
+ * sync engine can replay the deletion to other devices (a plain remote
+ * absence is indistinguishable from "created on another device later").
+ */
 export async function del(store: StoreName, id: string): Promise<void> {
+  if (isSyncedStore(store)) {
+    await tx("sync_tombstones", "readwrite", (os) =>
+      os.put({
+        key: `${store}:${id}`,
+        store,
+        id,
+        deleted_at: Date.now(),
+      } satisfies TombstoneRow)
+    );
+  }
+  await tx(store, "readwrite", (os) => os.delete(id));
+  notify();
+}
+
+/**
+ * Remote-delete apply path (sync engine only): removes the record and plants
+ * the tombstone with the REMOTE timestamp, so this deletion isn't re-pushed
+ * as a newer local event.
+ */
+export async function applyRemoteDelete(
+  store: SyncedStore,
+  id: string,
+  deletedAtMs: number
+): Promise<void> {
+  await tx("sync_tombstones", "readwrite", (os) =>
+    os.put({
+      key: `${store}:${id}`,
+      store,
+      id,
+      deleted_at: deletedAtMs,
+    } satisfies TombstoneRow)
+  );
   await tx(store, "readwrite", (os) => os.delete(id));
   notify();
 }
@@ -163,6 +282,35 @@ export async function wipeAll(): Promise<void> {
   for (const s of STORES) {
     await clearStore(s);
   }
+}
+
+// ─── one-time migration: stamp legacy rows so LWW sync has a baseline ───────
+const MIGRATE_KEY = "sync-updated-at-migrated";
+
+/**
+ * Records written before sync existed have no `updated_at`. Stamp them once
+ * (staggered by a few ms so per-record ordering stays stable) and remember
+ * the migration in kv. Safe to call on every boot — the kv guard makes it a
+ * no-op after the first run, and rows already stamped are left alone.
+ */
+export async function ensureUpdatedAtStamps(): Promise<void> {
+  const done = await kvGet<boolean>(MIGRATE_KEY).catch(() => false);
+  if (done) return;
+  const base = Date.now();
+  let touched = 0;
+  for (const store of SYNCED_STORES) {
+    const rows = await getAll(store);
+    const missing = rows.filter((r) => typeof (r as { updated_at?: number }).updated_at !== "number");
+    if (missing.length === 0) continue;
+    const stamped = missing.map((r, i) => ({
+      ...(r as { updated_at?: number }),
+      updated_at: base + i,
+    }));
+    await bulkPut(store, stamped as never[], { touch: false });
+    touched += stamped.length;
+  }
+  await kvSet(MIGRATE_KEY, true);
+  if (touched > 0) console.info(`[sync] stamped ${touched} legacy record(s) with updated_at`);
 }
 
 // ─── kv helpers (active session etc.) ───────────────────────────────────────

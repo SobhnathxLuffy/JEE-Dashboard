@@ -179,7 +179,9 @@ export function DataView() {
           await bulkPut("papers", asRows as never[]);
           total += asRows.length;
         } else {
-          await bulkPut(store, rows as never[]);
+          // touch:false — a backup restore replays history, it isn't a new
+          // edit; rows keep their original sync stamps (missing ones get one)
+          await bulkPut(store, rows as never[], { touch: false });
           total += rows.length;
         }
       }

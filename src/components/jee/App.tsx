@@ -32,6 +32,9 @@ import {
   Monitor,
   Check,
   Sparkles,
+  Cloud,
+  CloudOff,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -48,6 +51,8 @@ import { toast } from "sonner";
 import { PwaRegister } from "./PwaRegister";
 import { cn } from "@/lib/utils";
 import { EASE } from "./motion";
+import { initSync, useSyncStatus } from "@/lib/sync";
+import { SyncDialog } from "./SyncDialog";
 import {
   clearSession,
   getAll,
@@ -142,9 +147,22 @@ export function AppRoot() {
   const [paperForImport, setPaperForImport] = useState<PaperRecord | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const pdfBlobRef = useRef<Blob | null>(null);
   const seededRef = useRef(false);
+  const syncStartedRef = useRef(false);
   const dataVersion = useDataVersion();
+
+  // Optional cross-device sync engine — self-gates on config presence
+  useEffect(() => {
+    if (syncStartedRef.current) return;
+    syncStartedRef.current = true;
+    try {
+      initSync();
+    } catch {
+      // sync must never take the app down
+    }
+  }, []);
 
   const tests = useLive("tests");
   const responses = useLive("responses");
@@ -302,13 +320,14 @@ export function AppRoot() {
               <div className="min-w-0">
                 <div className="font-semibold text-foreground leading-tight truncate">JEE Study App</div>
                 <div className="text-[11px] text-muted-foreground leading-tight truncate hidden sm:block">
-                  local-first · all data stays in this browser
+                  local-first · sync optional · all data stays yours
                 </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 shrink-0">
               {/* E1: exam countdown chip — wraps below the north-star on mobile */}
               <CountdownChip />
+              <SyncChip onOpen={() => setSyncOpen(true)} />
               <button
                 onClick={() => setAiOpen(true)}
                 className="press h-8 w-8 grid place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
@@ -453,6 +472,9 @@ export function AppRoot() {
       {/* AI settings — BYO OpenAI-compatible endpoint (AI Credits etc.) */}
       <AISettingsDialog open={aiOpen} onOpenChange={setAiOpen} />
 
+      {/* Optional cross-device sync — user's own Supabase project */}
+      <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
+
       {/* C5: discard confirmation — answers are lost, only the attempt record stays */}
       <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <AlertDialogContent>
@@ -478,6 +500,50 @@ export function AppRoot() {
       </AlertDialog>
       </div>
     </MotionConfig>
+  );
+}
+
+// ─── Header sync chip — quiet until it matters (error / syncing states) ────
+function SyncChip({ onOpen }: { onOpen: () => void }) {
+  const s = useSyncStatus();
+  const Icon =
+    s.phase === "syncing" ? Loader2 : s.phase === "idle" || s.phase === "signed-out" ? Cloud : CloudOff;
+  const dot =
+    s.phase === "error"
+      ? "bg-red-500"
+      : s.phase === "offline"
+        ? "bg-amber-500"
+        : s.phase === "signed-out" && s.email === null && s.lastSyncAt
+          ? "bg-amber-500"
+          : null;
+  const label =
+    s.phase === "syncing"
+      ? "Syncing…"
+      : s.phase === "error"
+        ? `Sync error — ${s.lastError ?? "tap to open"}`
+        : s.phase === "offline"
+          ? "Offline — sync paused"
+          : s.phase === "signed-out"
+            ? "Sync: sign in to enable"
+            : s.phase === "unconfigured"
+              ? "Sync between devices — set up"
+              : s.lastSyncAt
+                ? `Synced ${new Date(s.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "Sync ready";
+  return (
+    <button
+      onClick={onOpen}
+      className="press relative h-8 w-8 grid place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      aria-label={`Sync: ${label}`}
+      title={`Sync — ${label}`}
+    >
+      <Icon
+        className={cn("w-4 h-4", s.phase === "syncing" && "animate-spin text-primary")}
+        strokeWidth={1.75}
+        aria-hidden="true"
+      />
+      {dot ? <span className={cn("absolute top-1 right-1 w-1.5 h-1.5 rounded-full", dot)} aria-hidden="true" /> : null}
+    </button>
   );
 }
 

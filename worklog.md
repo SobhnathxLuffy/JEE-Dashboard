@@ -323,3 +323,24 @@ Work Log:
 
 Stage Summary:
 - Three genuinely-useful AI features shipped on BYO OpenAI-compatible infrastructure, local-first intact: key in localStorage, results/usage in IndexedDB, zero server-side state, on-demand only (no background spend). DeepSeek V3 default advice: ~₹0.12/explanation, ~₹0.3/coach report, ~₹0.3-0.6 per 20-page extraction — ₹50 covers months.
+
+---
+Task ID: 14
+Agent: main (Super Z)
+Task: Cross-device sync with authentication — research how open-source local-first apps (Super Productivity et al.) do it, pick a free privacy-first method, implement, verify aggressively.
+
+Work Log:
+- Research: Super Productivity's modern self-hosted sync converged on Supabase (alongside legacy Dropbox/WebDAV file sync); Joplin uses own-cloud targets. Chose Supabase: user's OWN free project as relay, passwordless magic-link auth (zero OAuth-app setup = least hassle), Row-Level Security isolation, open source/self-hostable, 500MB free tier. Papers/kv/ai_* deliberately excluded (blobs too heavy; keys/session stay device-local).
+- types.ts: added updated_at sync stamps to TestRecord/ResponseRecord/SyllabusRow/FormulaEntry/DailyLog/Task (+id on DailyLog — store keyPath already required it); Question/CalEventRecord had them.
+- idb.ts v6: new sync_tombstones store; put/bulkPut stamp updated_at by default (touch:false opt-out for sync-apply + backup restore, preventing echo re-pushes); del() plants tombstones on synced stores; applyRemoteDelete() plants REMOTE-timestamped tombstones; ensureUpdatedAtStamps() one-time legacy migration (kv-guarded); ?device=<name> opens a separate IndexedDB (two-device E2E in one browser); DB_DEVICE_ID exported.
+- lib/sync.ts (~600 lines): SyncBackend interface; SupabaseBackend (lazy dynamic import keeps supabase-js out of the initial bundle; PKCE, magic link via signInWithOtp, paginated pullDelta gt(cursor), chunked push via sync_push RPC with plain-upsert fallback); MockBackend (?syncMock=1, rows in shared localStorage = fake server, mirrors server-side LWW guard, storage-event cross-tab poke); LWW merge engine (pull→merge→push, tombstone-aware, echo-guarded cursors with clock-skew clamp); status external store + useSyncStatus(); auto-sync triggers (write debounce 6s, tab focus, online, 5-min interval, session change); mapSyncError() friendly messages; probeProject() wizard health check.
+- SyncDialog.tsx: 3-step setup wizard (create project → copyable SQL → paste URL+anon key with live probe), magic-link sign-in, status card (synced-ago, pulled/pushed, pending count, errors), auto-sync switch, sync now, sign out, disconnect, "what syncs" scope list with live record counts, TEST MODE banner in mock mode.
+- App.tsx: header SyncChip (cloud states: unconfigured/signed-out/idle/syncing/error/offline + error dot), SyncDialog mount, initSync() on boot; header subtitle updated.
+- scripts/sync.test.ts: 14 checks — LWW decisions, push-cursor math (echo guard + skew clamp), chunking, server-guard contract.
+- Setup SQL (in-app, copyable): sync_data table (PK user_id,store,rec_id), RLS "own rows" policy, pull index, sync_push() plpgsql function with `where sync_data.updated_at < excluded.updated_at` monotone guard.
+- BUG found by E2E: cursors lived in shared localStorage but belong to the DEVICE DATABASE — tab B (separate IDB) read tab A's advanced pull cursor and pulled nothing. Fixed: cursor + device-id keys namespaced with DB_DEVICE_ID.
+- E2E (agent-browser, two tabs = two devices): A creates+syncs → B pulls ✓; B marks done → A sees it ✓; delete propagated automatically by 6s write-debounce + storage poke ✓; deterministic LWW conflict: B deletes (tomb T1) < A toggles (T2) → B pushes tomb, A pushes record, server guard accepts record (T2>T1), B RESURRECTS the task on pull ✓ — all three converged on same row; no echo re-pushes (stamps preserved); wizard renders + SQL copy; dark + 390px mobile screenshots; fresh reload shows task on B; 0 console errors/warnings both tabs; calendar + bank regression smoke ✓ (research/sync/s01–s09).
+- Gates: tsc 0 · eslint 0 · next build ✓ · 14/14 unit checks.
+
+Stage Summary:
+- Optional cross-device sync shipped the Super-Productivity-style way: user's own free Supabase project + passwordless auth + RLS, per-record LWW with tombstones, server-side monotone push guard, in-app setup wizard, quiet header chip. Local-first intact — sync is additive, off until configured. Verified end-to-end with a mock server across two simulated devices including conflict resolution; ready for the user's real Supabase project.

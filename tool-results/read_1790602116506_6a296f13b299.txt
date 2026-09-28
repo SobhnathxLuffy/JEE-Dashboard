@@ -284,3 +284,43 @@
    284→Stage Summary:
    285→- 4 user features shipped; DB v3 migration seamless; Google sync delivered as official no-backend paths (template links + .ics import) with honest in-UI explanation
    286→
+   287→---
+   288→Task ID: 12
+   289→Agent: main (Super Z)
+   290→Task: Rebuild the Calendar as a real Google Calendar-grade app (day/week/month time grid, drag time-blocking) and add a genuine one-way sync to Google Calendar (Super Productivity-style); "verify aggressively then push".
+   291→
+   292→Work Log:
+   293→- Data: types.ts CalEventRecord + EventColor (minutes-from-midnight, no tz math); idb.ts v4 adds "cal_events" store (onupgradeneeded migration, v3 data intact — verified by reloading a populated DB)
+   294→- lib/calendar.ts: timed-event support for Google template links (floating datetimes) + RFC 5545 ICS (DTSTART floating local; multi-day all-day; escaping)
+   295→- lib/gcal.ts (NEW): Google Identity Services token client (implicit OAuth, no backend, user-supplied Client ID — Google requires per-origin authorized JS origins), token cache/silent-reauth/interactive fallback, Calendar API v3 POST/PATCH/DELETE, one-way mirror sync driven by content hashes (create new, PATCH changed, DELETE removed-from-app; per-item error isolation; map persisted in localStorage), colorId mapping (sage→2 etc.), tzOffsetString
+   296→- lib/calitems.ts (NEW): pure assembly of tests + 1-3-7 revisions + dated to-dos + user events into CalItem[] (multi-day all-day indexing, exclusive end dates) and into the SyncItem payload; done/undated to-dos excluded (mirror cleans their Google events)
+   297→- UI (src/components/jee/calendar/): TimeGridView (day/week, 48px/hour, 15-min snap, drag-create with live range preview, drag-move, bottom-edge resize, cluster-based overlap lanes, all-day row, red now-line, auto-scroll to now), MonthGridView (timed chips with time prefix, +N more, day click → day view), EventDialog (all-day toggle, color swatches, notes, delete; form remounts per target — no setState-in-effect), GoogleSyncPanel (status dot, Sync now, include-study-plan + auto-sync switches, 5-step setup wizard with copyable origin, disconnect, reset sync map), CalendarView shell (view switcher, period nav, .ics export menu, item info dialog, debounced auto-sync)
+   298→- Tests (scripts/gcal.test.ts, 21 checks): Google event bodies (timed offset/all-day/multi-day/colorId), itemHash stability, mirrorSync against mock fetch (create/no-op/update+delete/error isolation/410-as-success), assembly + indexByDate + payload filtering, ICS, template links, HHMM helpers. Found+fixed 2 real bugs: exclusive-end zero-day coverage; fractional-minute drift in drag-move (grab offset now snapped)
+   299→- E2E (agent-browser): dialog create, drag-create Tue 14:00–15:30 (live preview "14:00 – 15:30" then prefilled dialog), drag-move 12:00–13:00 toast, resize "Ends at 13:45 now", click-without-drag opens editor, delete, month chips w/ time prefix, day view + all-day task chip from Dashboard to-do, .ics export toast, dark mode, mobile 390px (day auto-select), console 0 errors/warnings
+   300→- Full sync lifecycle verified in-browser with fake GIS + fetch stub: connect → "2 created" (POSTs) → second sync "already up to date" (0 calls) → resize → auto-sync "1 updated" (PATCH to correct gid) → delete → "1 removed" (DELETE to gid, map cleaned); localStorage map/last-sync inspected
+   301→- tsc 0, eslint 0, dev.log clean; screenshots in research/cal/e01–e12
+   302→- Committed 0907efe. Push FAILED again — no GitHub credentials in env (token rotated); needs fresh token for git push origin main.
+   303→
+   304→Stage Summary:
+   305→- The Calendar tab is now a genuine Google Calendar replacement surface: three views, free time-blocking by drag, move/resize, all-day aggregation of the study plan, .ics fallback — and a real one-way sync that mirrors the app onto Google Calendar with zero-config idempotence and repair-on-change. User needs only their own OAuth Client ID (wizard walks them through it, origin copy-paste ready).
+   306→
+   307→---
+   308→Task ID: 13
+   309→Agent: main (Super Z)
+   310→Task: AI layer — "Explain this question", PDF → Question Bank extraction, AI Study Coach (todos + tomorrow's calendar + syllabus coverage + per-test performance), with BYO-provider infrastructure (user's AI Credits API, ₹50 budget).
+   311→
+   312→Work Log:
+   313→- idb.ts v5 + "ai_cache" (explanations/coach reports — re-views never re-bill) + "ai_usage" (per-call tokens + ₹ estimate); types.ts AiCacheRecord/AiUsageRecord
+   314→- lib/ai.ts: AISettings in localStorage (device-local key), MODEL_PRESETS with ₹/M table (DeepSeek V3 recommended, Gemini Flash, GPT-4o-mini, Haiku), callAI (stream SSE + jsonMode with response_format-retry fallback), friendly error mapping (401/402/404/429/5xx/timeout), ai_cache get/set/del, extractPdfText (pdf.js text layer, 600k cap), chunkText (page-boundary 14k chunks), parseLooseJson (fence/protection)
+   315→- /api/ai route: stateless OpenAI-compatible proxy (baseUrl+apiKey+model per request, nothing stored/logs server-side), stream pass-through, jsonMode 400-retry, 280s timeout, friendly errors
+   316→- AISettingsDialog (header ✦ button): base URL/key/model + preset chips + Test connection (validates draft, shows model) + monthly usage readout (calls, ≈₹, per-feature); key never leaves device
+   317→- ExplainDialog (Results per-question rows + Performance wrong-list rows): streaming plain-text solution framed as "Why my answer is wrong" using the user's own answer; cached by response id (re-open = instant + "cached · free"), Regenerate; prompt knows subject/chapter/options/MCQ-letter vs numerical/pdf-mode
+   318→- PdfExtractPanel (QuestionBank "✦ PDF → Bank"): FileDrop → pdf.js text (scanned PDFs rejected honestly) → chunked jsonMode calls with live progress → every model row validated through the SAME parseQuestionsJson as manual JSON import (moved validator to lib/question-json.ts shared) → review table (per-row subject/chapter edit, delete/undo, error reasons) → bulkPut with "AI extract · <paper>" source; stale-closure fix for source name
+   319→- CoachCard (Dashboard, full-width): gathers snapshot (pending/overdue to-dos, tomorrow's events+tests+revisions+tasks, per-subject syllabus coverage incl. notStartedList with tiers, red/amber chapters, repeated failures, last 12 scored tests, error tags, exam countdown) → lib/coach.ts strict-JSON prompt → summary + weak chapters + syllabus-gap chips + insights + 7-day plan grid (times, subjects, kind) → "Add plan to Calendar" writes CalEventRecords (study=slate/revision=kraft/test=coral)
+   320→- BUG found by E2E: Dashboard's dataVersion remount reset the "added" flag → repeated clicks duplicated plan events (15 instead of 5). Fixed with IDB-derived idempotency marker ("AI Coach plan <ts>" in notes) — button shows "✓ In Calendar" and re-adds are blocked + toast
+   321→- scripts/mock-ai-provider.ts: OpenAI-compatible mock on :3030 (routes by system marker: OK ping/extraction/coach/explain, SSE streaming, usage fields) → full-stack E2E without real credits
+   322→- E2E (agent-browser): settings→test connection→save; coach report from real data→5 blocks on Calendar grid; PDF drop→2 questions extracted→imported (verified sources/types/answers in IDB); CBT run→wrong answer→Explain streams→cache hit free; usage log 4 features ≈₹0.07; dark mode + 390px mobile; fresh-load console 0 errors; tsc 0 / eslint 0
+   323→
+   324→Stage Summary:
+   325→- Three genuinely-useful AI features shipped on BYO OpenAI-compatible infrastructure, local-first intact: key in localStorage, results/usage in IndexedDB, zero server-side state, on-demand only (no background spend). DeepSeek V3 default advice: ~₹0.12/explanation, ~₹0.3/coach report, ~₹0.3-0.6 per 20-page extraction — ₹50 covers months.
+   326→

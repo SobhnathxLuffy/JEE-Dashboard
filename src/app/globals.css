@@ -46,9 +46,22 @@
 :root {
   /* "Quiet Cockpit" tokens — warm stone neutrals (Linear), ONE emerald accent
      (taste-skill "Lila Ban": max 1 accent, saturation ≤ 80%), Geist type.
-     Chart ramp follows subject identity: emerald=P&C good, amber=Physics,
+     Chart ramp follows subject identity: emerald=good/score, amber=Physics,
      graphite=Maths, sky=extra series, violet=marked/review. */
   --radius: 0.5rem;
+  color-scheme: light;
+
+  /* semantic chart vocabulary — consumed by shared.tsx via var()
+     (theme-aware: components never hardcode hex again) */
+  --sem-emerald: oklch(0.508 0.118 165.6);
+  --sem-amber: oklch(0.666 0.15 60);
+  --sem-red: oklch(0.577 0.245 27.325);
+  --sem-stone: oklch(0.553 0.012 58);
+  --sem-slate: oklch(0.48 0.028 231);
+  --sem-violet: oklch(0.541 0.247 293);
+  --chart-grid: oklch(0.923 0.004 79);
+  --chart-tick: oklch(0.553 0.012 58);
+  --tip-shadow: 0 8px 24px -12px rgba(28, 25, 23, 0.18);
   --background: oklch(0.984 0.003 86);
   --foreground: oklch(0.216 0.006 56);
   --card: oklch(1 0 0);
@@ -82,9 +95,22 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Warm-neutral dark (Linear: "too cool reads muddy") — future-proofing; the
-   app currently ships light-only, but tokens stay correct if .dark is set. */
+/* Warm-neutral dark (Linear: "too cool reads muddy") — a first-class theme,
+   toggled in the header (next-themes, class strategy). Subjects stay
+   recognizable: same hues as light, lightness lifted to read on stone-950. */
 .dark {
+  color-scheme: dark;
+
+  --sem-emerald: oklch(0.723 0.149 162.5);
+  --sem-amber: oklch(0.795 0.14 70);
+  --sem-red: oklch(0.704 0.191 22.216);
+  --sem-stone: oklch(0.708 0.011 68);
+  --sem-slate: oklch(0.7 0.05 231);
+  --sem-violet: oklch(0.702 0.183 293.5);
+  --chart-grid: oklch(1 0 0 / 10%);
+  --chart-tick: oklch(0.708 0.011 68);
+  --tip-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+
   --background: oklch(0.156 0.004 60);
   --foreground: oklch(0.968 0.003 86);
   --card: oklch(0.213 0.005 60);
@@ -102,12 +128,12 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  --ring: oklch(0.723 0.149 162.5);
+  --chart-1: oklch(0.723 0.149 162.5);
+  --chart-2: oklch(0.795 0.14 70);
+  --chart-3: oklch(0.708 0.011 68);
+  --chart-4: oklch(0.7 0.05 231);
+  --chart-5: oklch(0.702 0.183 293.5);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -132,18 +158,18 @@
   /* thin warm scrollbars — dense panes (palette, review lists, tables) */
   * {
     scrollbar-width: thin;
-    scrollbar-color: oklch(0.868 0.005 80) transparent;
+    scrollbar-color: var(--scrollbar-thumb, oklch(0.868 0.005 80)) transparent;
   }
   *::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   *::-webkit-scrollbar-thumb {
-    background: oklch(0.868 0.005 80);
+    background: var(--scrollbar-thumb, oklch(0.868 0.005 80));
     border-radius: 9999px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.777 0.008 70);
+    background: var(--scrollbar-thumb-hover, oklch(0.777 0.008 70));
   }
   *::-webkit-scrollbar-track {
     background: transparent;
@@ -156,9 +182,35 @@
     transition:
       transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
       background-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
-      color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+      color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   .press:active {
     transform: scale(0.98);
+  }
+  /* the whisper shadow as a token — invisible in dark, hairline carries there */
+  .card-shadow {
+    box-shadow: 0 1px 2px 0 rgba(28, 25, 23, 0.04);
+  }
+  .dark .card-shadow {
+    box-shadow: none;
+  }
+}
+
+/* dark scrollbar ramp */
+.dark {
+  --scrollbar-thumb: oklch(0.32 0.006 60);
+  --scrollbar-thumb-hover: oklch(0.42 0.008 60);
+}
+
+/* theme transition — chrome crossfades when the toggle flips (transform/opacity
+   rule doesn't apply to colors; kept short so it reads as a fade, not a lag) */
+@layer base {
+  html.theme-switching * {
+    transition:
+      background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 200ms cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 }

@@ -56,3 +56,30 @@ work stays inside one system instead of drifting back to template-land.
 - `src/app/globals.css` — palette, radius, scrollbars, selection, `press`
 - `src/components/jee/shared.tsx` — StatCard / SectionCard / EmptyState / chart consts
 - `src/components/jee/App.tsx` — shell (header, grouped icon nav, footer)
+- `src/components/jee/motion.tsx` — the motion layer (v2)
+- `src/app/theme-provider.tsx` — next-themes wiring (v2)
+
+## v2 additions (the "modern elegant" pass)
+
+13. **Dark mode is first-class.** next-themes, class strategy, Light/Dark/System
+    menu in the header with a pure-CSS sun/moon crossfade (zero hydration risk).
+    Dark = warm stone (never pure black), same hues as light with lightness
+    lifted. `color-scheme` set per theme; scrollbars/selection/theme-switch
+    fade all themed. Every component consumes tokens — no hardcoded hex.
+14. **Charts are theme-aware by construction.** `CH` colors are CSS vars
+    (`--sem-*`) defined per theme in globals.css; grid/tick/tooltips likewise.
+    A chart written once renders correctly in both themes.
+15. **Motion rules.** framer-motion, `MotionConfig reducedMotion="user"` at the
+    root. Page transitions = AnimatePresence fade+rise (0.22s, EASE). Player
+    questions slide in on change (0.18s). Stagger cascades for stat grids
+    (45ms). Count-up springs on key numerals. Hover lift −2px on stat cards.
+    Nav uses a layoutId sliding pill. Transform/opacity only.
+16. **Every chart says what it denotes.** `ChartNote` under each chart: one
+    plain-English line explaining axes/gates/meaning ("dashed line is the 70%
+    green gate", "grey = score if guesses were skipped").
+17. **Modern chart shapes.** Score timelines are gradient area charts (line +
+    22%→2% fill); bars rounded 3-4px; glass tooltips (`ChartTip`) with mono
+    numerals; sparklines in StatCards (`Spark`); continuous lines, hover dots.
+18. **CBT honesty kept in dark.** NTA palette chips get dark equivalents
+    (answered=emerald-500/950, marked=purple tint, unvisited=transparent with
+    border); the timer bar drains with remaining time and recolors at stages.

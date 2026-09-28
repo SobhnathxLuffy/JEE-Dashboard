@@ -5,6 +5,8 @@
 // sections (paper numbering), PDF page nav/zoom/pins, timer stages,
 // marksFor() scoring (bonus / multi-answer keys / tolerance) + key-later submit.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { EASE } from "./motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -550,7 +552,7 @@ export function PlayerView({
   if (slots.length === 0) {
     return (
       <div className="text-center py-20">
-        <p className="text-stone-500">This test has no questions available.</p>
+        <p className="text-muted-foreground">This test has no questions available.</p>
         <Button variant="outline" className="mt-4" onClick={() => onFinish("")}>
           Back
         </Button>
@@ -619,21 +621,25 @@ export function PlayerView({
 
   return (
     <div className="space-y-4">
-      {/* header */}
+      {/* header — the hairline under the clock drains away as time runs out */}
       <div
         className={cn(
-          "bg-white border rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap",
-          timeStage === "red" ? "border-red-300" : timeStage === "amber" ? "border-amber-300" : "border-stone-200"
+          "bg-card card-shadow border rounded-xl px-4 pt-3 pb-3.5 flex items-center justify-between gap-3 flex-wrap relative overflow-hidden",
+          timeStage === "red"
+            ? "border-red-300 dark:border-red-500/40"
+            : timeStage === "amber"
+              ? "border-amber-300 dark:border-amber-500/40"
+              : "border-border"
         )}
       >
         <div className="min-w-0">
-          <div className="font-semibold text-stone-900 truncate">{session.name}</div>
-          <div className="text-xs text-stone-400">
+          <div className="font-semibold text-foreground truncate">{session.name}</div>
+          <div className="text-xs text-muted-foreground/70">
             {slots.length} questions ·{" "}
             {keyLater ? "key comes later — self-mark after submit" : "+4 / −1 / 0 · numericals included"}
           </div>
         </div>
-        <div className="hidden md:block text-[11px] text-stone-400" aria-hidden="true">
+        <div className="hidden md:block text-[11px] text-muted-foreground/70" aria-hidden="true">
           ⌨ 1-4 · Enter · ← · M · C
         </div>
         <div className="flex items-center gap-3">
@@ -641,10 +647,10 @@ export function PlayerView({
             className={cn(
               "text-2xl font-black tabular-nums px-4 py-1.5 rounded-lg",
               timeStage === "red"
-                ? "bg-red-50 text-red-600"
+                ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
                 : timeStage === "amber"
-                  ? "bg-amber-50 text-amber-700"
-                  : "bg-stone-100 text-stone-800"
+                  ? "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  : "bg-muted text-foreground"
             )}
             aria-live="polite"
           >
@@ -652,7 +658,7 @@ export function PlayerView({
           </div>
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogTrigger asChild>
-              <Button className="bg-emerald-700 hover:bg-emerald-800">Submit</Button>
+              <Button className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">Submit</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -667,7 +673,7 @@ export function PlayerView({
               <AlertDialogFooter>
                 <AlertDialogCancel>Keep solving</AlertDialogCancel>
                 <AlertDialogAction
-                  className="bg-emerald-700 hover:bg-emerald-800"
+                  className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
                   onClick={() => void submit()}
                 >
                   Submit &amp; analyze
@@ -676,21 +682,31 @@ export function PlayerView({
             </AlertDialogContent>
           </AlertDialog>
         </div>
+        {/* remaining-time bar — drains toward zero, recolors at the stages */}
+        <div className="absolute inset-x-0 bottom-0 h-0.5" aria-hidden="true">
+          <div
+            className={cn(
+              "h-full transition-[width] duration-500 ease-linear",
+              timeStage === "red" ? "bg-red-500" : timeStage === "amber" ? "bg-amber-500" : "bg-emerald-600 dark:bg-emerald-500"
+            )}
+            style={{ width: `${Math.max(0, Math.min(100, (remaining / Math.max(1, session.duration_min * 60)) * 100))}%` }}
+          />
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-4 gap-4">
         {/* main panel */}
-        <div className="lg:col-span-3 bg-white border border-stone-200 rounded-xl p-4 min-h-[420px] flex flex-col">
+        <div className="lg:col-span-3 bg-card border border-border card-shadow rounded-xl p-4 min-h-[420px] flex flex-col">
           {session.mode === "pdf" ? (
             <div className="flex-1 flex flex-col">
               <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="border-stone-300 text-stone-500">
+                  <Badge variant="outline" className="border-border text-muted-foreground">
                     PDF page {viewPage}
                     {numPages ? ` / ${numPages}` : ""}
                   </Badge>
                   {pinForCurrent ? (
-                    <Badge variant="outline" className="border-purple-300 text-purple-700 gap-1">
+                    <Badge variant="outline" className="border-purple-300 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 gap-1">
                       <Pin className="w-3 h-3" aria-hidden="true" /> Q{curNo} → p{pinForCurrent}
                     </Badge>
                   ) : null}
@@ -741,7 +757,7 @@ export function PlayerView({
                     <Minus className="w-4 h-4" />
                   </Button>
                   <span
-                    className="h-10 min-w-12 px-2 inline-flex items-center justify-center rounded-md border border-stone-200 bg-white text-xs font-medium tabular-nums text-stone-600"
+                    className="h-10 min-w-12 px-2 inline-flex items-center justify-center rounded-md border border-border bg-card text-xs font-medium tabular-nums text-muted-foreground"
                     aria-live="polite"
                   >
                     {zoom.toFixed(1)}×
@@ -770,7 +786,7 @@ export function PlayerView({
               {pdfErr ? (
                 <div className="text-xs text-red-500 mb-2">{pdfErr}</div>
               ) : null}
-              <div className="border border-stone-200 rounded-lg overflow-auto max-h-[420px] bg-stone-100">
+              <div className="border border-border rounded-lg overflow-auto max-h-[420px] bg-muted">
                 {pdfPage ? (
                   <canvas
                     className="w-full h-auto block"
@@ -786,7 +802,7 @@ export function PlayerView({
                     }}
                   />
                 ) : (
-                  <div className="p-10 text-center text-sm text-stone-400">
+                  <div className="p-10 text-center text-sm text-muted-foreground/70">
                     {pdfErr ? pdfErr : "Rendering page…"}
                   </div>
                 )}
@@ -798,15 +814,15 @@ export function PlayerView({
             <div className="flex-1 flex flex-col mt-3">
               <div className="flex items-center justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-stone-900">Q{currentSlot.no}</span>
-                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                  <span className="text-sm font-bold text-foreground">Q{currentSlot.no}</span>
+                  <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                     {pdfKeyIsLetter(session, currentSlot.no) ? "MCQ" : "NUMERICAL"}
                   </Badge>
-                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                  <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                     {currentSlot.chapter ?? session.pdf_meta?.chapter}
                   </Badge>
                 </div>
-                <span className="text-xs text-stone-400">
+                <span className="text-xs text-muted-foreground/70">
                   time on this Q:{" "}
                   {Math.round(
                     (now - session.q_entered_at) / 1000 +
@@ -815,7 +831,7 @@ export function PlayerView({
                   s
                 </span>
               </div>
-              <p className="text-sm text-stone-500 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Read the question from the paper above, then answer here:
               </p>
               {pdfKeyIsLetter(session, currentSlot.no) ? (
@@ -825,10 +841,10 @@ export function PlayerView({
                       key={l}
                       onClick={() => setAnswer(currentSlot.slot, l)}
                       className={cn(
-                        "w-14 h-14 rounded-lg border text-lg font-bold transition-colors",
+                        "press w-14 h-14 rounded-lg border text-lg font-bold transition-colors",
                         selected === l
-                          ? "border-emerald-700 bg-emerald-50 text-emerald-800"
-                          : "border-stone-200 hover:border-emerald-400 hover:bg-stone-50"
+                          ? "border-emerald-700 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-300"
+                          : "border-border hover:border-emerald-400 dark:hover:border-emerald-500 hover:bg-accent/50"
                       )}
                     >
                       {l}
@@ -837,96 +853,105 @@ export function PlayerView({
                 </div>
               ) : (
                 <div className="max-w-xs">
-                  <p className="text-xs text-stone-400 mb-1.5">Your answer (number):</p>
+                  <p className="text-xs text-muted-foreground/70 mb-1.5">Your answer (number):</p>
                   <Input
                     value={typeof selected === "string" || typeof selected === "number" ? String(selected) : ""}
                     onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
                     inputMode="decimal"
                     placeholder="type the value"
                   />
-                  <p className="text-[11px] text-stone-400 mt-2">
+                  <p className="text-[11px] text-muted-foreground/70 mt-2">
                     Numericals carry −1 for wrong entries — leave blank instead of guessing.
                   </p>
                 </div>
               )}
             </div>
           ) : curQ ? (
-            <div className="flex-1 flex flex-col">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-stone-900">Q{currentSlot?.no}</span>
-                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
-                    {curQ.type === "numerical" ? "NUMERICAL" : "MCQ"}
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
-                    {curQ.chapter}
-                  </Badge>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={session.current}
+                initial={{ opacity: 0, x: 18 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.18, ease: EASE }}
+                className="flex-1 flex flex-col"
+              >
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-foreground">Q{currentSlot?.no}</span>
+                    <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                      {curQ.type === "numerical" ? "NUMERICAL" : "MCQ"}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                      {curQ.chapter}
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-muted-foreground/70">
+                    time on this Q: {Math.round(((now - session.q_entered_at) / 1000 + (session.q_times[currentSlot.slot] ?? 0)))}s
+                  </span>
                 </div>
-                <span className="text-xs text-stone-400">
-                  time on this Q: {Math.round(((now - session.q_entered_at) / 1000 + (session.q_times[currentSlot.slot] ?? 0)))}s
-                </span>
-              </div>
-              <p className="text-base text-stone-900 mb-5 leading-relaxed">{curQ.question}</p>
+                <p className="text-base text-foreground mb-5 leading-relaxed">{curQ.question}</p>
 
-              {curQ.image ? (
-                <img
-                  src={curQ.image}
-                  alt={`Figure for question ${currentSlot?.no ?? ""}`}
-                  className="max-h-64 rounded-lg border border-stone-200 mb-4"
-                />
-              ) : null}
+                {curQ.image ? (
+                  <img
+                    src={curQ.image}
+                    alt={`Figure for question ${currentSlot?.no ?? ""}`}
+                    className="max-h-64 rounded-lg border border-border bg-white mb-4"
+                  />
+                ) : null}
 
-              {curQ.type === "MCQ" ? (
-                <div className="space-y-2">
-                  {curQ.options.map((opt, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setAnswer(currentSlot.slot, i)}
-                      className={cn(
-                        "w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors flex items-center gap-3",
-                        selected === i
-                          ? "border-emerald-700 bg-emerald-50 font-medium"
-                          : "border-stone-200 hover:border-emerald-400 hover:bg-stone-50"
-                      )}
-                    >
-                      <span
+                {curQ.type === "MCQ" ? (
+                  <div className="space-y-2">
+                    {curQ.options.map((opt, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setAnswer(currentSlot.slot, i)}
                         className={cn(
-                          "w-6 h-6 rounded-full grid place-items-center text-xs font-bold border shrink-0",
+                          "press w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors flex items-center gap-3",
                           selected === i
-                            ? "bg-emerald-700 text-white border-emerald-700"
-                            : "border-stone-300 text-stone-500"
+                            ? "border-emerald-700 bg-emerald-50 dark:border-emerald-500 dark:bg-emerald-500/15 font-medium"
+                            : "border-border hover:border-emerald-400 dark:hover:border-emerald-500 hover:bg-accent/50"
                         )}
                       >
-                        {LETTERS[i]}
-                      </span>
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="max-w-xs">
-                  <p className="text-xs text-stone-400 mb-1.5">Your answer (number):</p>
-                  <Input
-                    value={typeof selected === "string" || typeof selected === "number" ? String(selected) : ""}
-                    onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
-                    inputMode="decimal"
-                    placeholder="type the value"
-                  />
-                  <p className="text-[11px] text-stone-400 mt-2">
-                    Exact match within the question&apos;s tolerance. Numericals carry −1 for wrong
-                    entries — leave blank instead of guessing.
-                  </p>
-                </div>
-              )}
-            </div>
+                        <span
+                          className={cn(
+                            "w-6 h-6 rounded-full grid place-items-center text-xs font-bold border shrink-0",
+                            selected === i
+                              ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
+                              : "border-border text-muted-foreground"
+                          )}
+                        >
+                          {LETTERS[i]}
+                        </span>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="max-w-xs">
+                    <p className="text-xs text-muted-foreground/70 mb-1.5">Your answer (number):</p>
+                    <Input
+                      value={typeof selected === "string" || typeof selected === "number" ? String(selected) : ""}
+                      onChange={(e) => setAnswer(currentSlot.slot, e.target.value)}
+                      inputMode="decimal"
+                      placeholder="type the value"
+                    />
+                    <p className="text-[11px] text-muted-foreground/70 mt-2">
+                      Exact match within the question&apos;s tolerance. Numericals carry −1 for wrong
+                      entries — leave blank instead of guessing.
+                    </p>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
           ) : (
-            <div className="flex-1 grid place-items-center text-stone-400 text-sm">
+            <div className="flex-1 grid place-items-center text-muted-foreground/70 text-sm">
               Question not found in the bank — it may have been deleted.
             </div>
           )}
 
           {/* action bar */}
-          <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-stone-100">
+          <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-border/60">
             <Button
               variant="ghost"
               size="sm"
@@ -945,14 +970,14 @@ export function PlayerView({
               variant="outline"
               size="sm"
               onClick={markAndNext}
-              className="h-10 px-3 border-purple-300 text-purple-700 hover:bg-purple-50"
+              className="h-10 px-3 border-purple-300 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-500/10"
             >
               {isMarked ? "Marked ✓ ·" : "Mark for Review &"} Next
             </Button>
             <Button
               size="sm"
               onClick={saveAndNext}
-              className="h-10 px-3 bg-emerald-700 hover:bg-emerald-800"
+              className="h-10 px-3 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
             >
               Save &amp; Next
             </Button>
@@ -960,7 +985,7 @@ export function PlayerView({
         </div>
 
         {/* palette rail */}
-        <div className="bg-white border border-stone-200 rounded-xl p-4">
+        <div className="bg-card border border-border card-shadow rounded-xl p-4">
           <div className="flex flex-wrap gap-1.5 mb-3">
             {sections.map((s) => {
               const count = slots.filter((x) => x.subject === s).length;
@@ -969,10 +994,10 @@ export function PlayerView({
                   key={s}
                   onClick={() => sectionTabClick(s)}
                   className={cn(
-                    "px-3 py-1.5 rounded-md text-xs font-medium transition-colors min-h-[36px]",
+                    "press px-3 py-1.5 rounded-md text-xs font-medium transition-colors min-h-[36px]",
                     activeSection === s
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
                   {SUBJECT_SHORT[s]} ({count})
@@ -992,15 +1017,15 @@ export function PlayerView({
                   key={s.slot}
                   onClick={() => goTo(i)}
                   className={cn(
-                    "h-10 w-10 sm:h-8 sm:w-8 rounded-md text-xs font-semibold border-2 transition-colors relative font-mono tabular-nums",
+                    "press h-10 w-10 sm:h-8 sm:w-8 rounded-md text-xs font-semibold border-2 transition-colors relative font-mono tabular-nums",
                     answered && marked
-                      ? "bg-emerald-600 text-white border-purple-600"
+                      ? "bg-emerald-600 dark:bg-emerald-500 text-white dark:text-emerald-950 border-purple-600 dark:border-purple-400"
                       : answered
-                        ? "bg-emerald-600 text-white border-emerald-600"
+                        ? "bg-emerald-600 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-600 dark:border-emerald-500"
                         : marked
-                          ? "bg-white text-purple-700 border-purple-600"
-                          : "bg-white text-stone-600 border-stone-300",
-                    isCurrent && "ring-2 ring-amber-400 ring-offset-1"
+                          ? "bg-white dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-600 dark:border-purple-400"
+                          : "bg-white dark:bg-transparent text-stone-600 dark:text-muted-foreground border-stone-300 dark:border-border",
+                    isCurrent && "ring-2 ring-amber-400 ring-offset-1 ring-offset-background"
                   )}
                   aria-label={`Question ${s.no}${answered ? ", answered" : ""}${marked ? ", marked" : ""}`}
                 >
@@ -1010,30 +1035,30 @@ export function PlayerView({
             })}
           </div>
 
-          <div className="text-[11px] text-stone-500 space-y-1.5 border-t border-stone-100 pt-3">
+          <div className="text-[11px] text-muted-foreground space-y-1.5 border-t border-border/60 pt-3">
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-emerald-600 border-2 border-emerald-600 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-emerald-600 dark:bg-emerald-500 border-2 border-emerald-600 dark:border-emerald-500 inline-block" />{" "}
               Answered
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border-2 border-purple-600 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-white dark:bg-purple-500/15 border-2 border-purple-600 dark:border-purple-400 inline-block" />{" "}
               Marked for review
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-emerald-600 border-2 border-purple-600 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-emerald-600 dark:bg-emerald-500 border-2 border-purple-600 dark:border-purple-400 inline-block" />{" "}
               Answered &amp; marked
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 inline-block" /> Not
+              <span className="w-4 h-4 rounded bg-white dark:bg-transparent border-2 border-stone-300 dark:border-border inline-block" /> Not
               answered
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-4 h-4 rounded bg-white border-2 border-stone-300 ring-2 ring-amber-400 ring-offset-1 inline-block" />{" "}
+              <span className="w-4 h-4 rounded bg-white dark:bg-transparent border-2 border-stone-300 dark:border-border ring-2 ring-amber-400 ring-offset-1 ring-offset-background inline-block" />{" "}
               Current
             </div>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-stone-100 text-xs text-stone-500">
+          <div className="mt-3 pt-3 border-t border-border/60 text-xs text-muted-foreground">
             <div className="flex justify-between">
               <span>Answered</span>
               <span className="font-semibold tabular-nums">{answeredCount}</span>
@@ -1049,7 +1074,7 @@ export function PlayerView({
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full mt-3 text-red-500 hover:text-red-600 hover:bg-red-50"
+                className="w-full mt-3 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
               >
                 Abandon test
               </Button>

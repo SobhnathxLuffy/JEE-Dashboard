@@ -1,0 +1,781 @@
+     1→"use client";
+     2→
+     3→// ─── Dashboard: north-star, Today card, Amber queue, all five mock metrics ──
+     4→import { useEffect, useMemo, useState } from "react";
+     5→import {
+     6→  Bar,
+     7→  BarChart,
+     8→  CartesianGrid,
+     9→  Cell,
+    10→  Legend,
+    11→  Line,
+    12→  LineChart,
+    13→  ReferenceLine,
+    14→  ResponsiveContainer,
+    15→  Tooltip,
+    16→  XAxis,
+    17→  YAxis,
+    18→} from "recharts";
+    19→import { Button } from "@/components/ui/button";
+    20→import { Checkbox } from "@/components/ui/checkbox";
+    21→import { Input } from "@/components/ui/input";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { toast } from "sonner";
+    24→import { cn } from "@/lib/utils";
+    25→import type { NavController } from "./App";
+    26→import { CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
+    27→import { get, kvGet, kvSet, put, useLive } from "@/lib/idb";
+    28→import {
+    29→  amberQueue,
+    30→  computeChapterHealth,
+    31→  errorTagCounts,
+    32→  negativeMarksByTest,
+    33→  northStar,
+    34→  repeatedFailureChapters,
+    35→  revisionDueRows,
+    36→  scoreTimeline,
+    37→  subjectAccuracy,
+    38→  timeBySubject,
+    39→} from "@/lib/analytics";
+    40→import { addDays, fmtSecs, todayStr, type DailyLog } from "@/lib/types";
+    41→
+    42→// CH, GRID, TICK, TICK_MONO and the shared tooltip (TIP) come from shared.tsx —
+    43→// one chart vocabulary across Dashboard and Performance.
+    44→const chartTooltip = TIP;
+    45→
+    46→/** E2: consecutive days where all four blocks are true — ends today if today is
+    47→ *  complete, otherwise yesterday (today still in progress never breaks it). */
+    48→function computeStreak(logs: DailyLog[], today: string): number {
+    49→  const byDate = new Map(logs.map((l) => [l.date, l]));
+    50→  const allDone = (l: DailyLog | undefined) => !!l && Object.values(l.blocks).every(Boolean);
+    51→  let cursor = allDone(byDate.get(today)) ? today : addDays(today, -1);
+    52→  let streak = 0;
+    53→  while (allDone(byDate.get(cursor))) {
+    54→    streak += 1;
+    55→    cursor = addDays(cursor, -1);
+    56→  }
+    57→  return streak;
+    58→}
+    59→
+    60→/** E3b: tooltip for the error-tags bar — raw count + share of tagged wrong. */
+    61→function TagPctTooltip({
+    62→  active,
+    63→  payload,
+    64→}: {
+    65→  active?: boolean;
+    66→  payload?: { payload?: { tag?: string; count?: number; pct?: number } }[];
+    67→}) {
+    68→  if (!active || !payload || payload.length === 0 || !payload[0]?.payload) return null;
+    69→  const d = payload[0].payload;
+    70→  return (
+    71→    <div className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
+    72→      <div className="font-medium text-stone-800">{d.tag}</div>
+    73→      <div className="text-stone-500 tabular-nums">
+    74→        {d.count} wrong · {d.pct}% of tagged
+    75→      </div>
+    76→    </div>
+    77→  );
+    78→}
+    79→
+    80→export function DashboardView({ nav }: { nav: NavController }) {
+    81→  const tests = useLive("tests");
+    82→  const responses = useLive("responses");
+    83→  const syllabus = useLive("syllabus");
+    84→  const dailyLogs = useLive("daily_log");
+    85→
+    86→  const today = todayStr();
+    87→
+    88→  // F3: first-run onboarding (kv "onboarded"; undefined = still reading kv)
+    89→  const [onboarded, setOnboarded] = useState<boolean | undefined>(undefined);
+    90→  useEffect(() => {
+    91→    let alive = true;
+    92→    kvGet<string>("onboarded")
+    93→      .then((v) => {
+    94→        if (alive) setOnboarded(v === "1");
+    95→      })
+    96→      .catch(() => {
+    97→        if (alive) setOnboarded(false);
+    98→      });
+    99→    return () => {
+   100→      alive = false;
+   101→    };
+   102→  }, []);
+   103→
+   104→  async function dismissOnboarding() {
+   105→    setOnboarded(true);
+   106→    try {
+   107→      await kvSet("onboarded", "1");
+   108→      toast.success("You're set. The loop starts tonight.");
+   109→    } catch {
+   110→      toast.error("Could not save — it will ask again next load");
+   111→    }
+   112→  }
+   113→
+   114→  // C3: backup nudge — data exists but no export in the last 7 days
+   115→  const [lastExportAt, setLastExportAt] = useState<string | null | undefined>(undefined);
+   116→  const [backupDismissed, setBackupDismissed] = useState(false);
+   117→  useEffect(() => {
+   118→    let alive = true;
+   119→    kvGet<string>("last-export-at")
+   120→      .then((v) => {
+   121→        if (alive) setLastExportAt(typeof v === "string" ? v : null);
+   122→      })
+   123→      .catch(() => {
+   124→        if (alive) setLastExportAt(null);
+   125→      });
+   126→    return () => {
+   127→      alive = false;
+   128→    };
+   129→  }, []);
+   130→
+   131→  const backupNudge = useMemo<{ label: string } | null>(() => {
+   132→    if (lastExportAt === undefined || tests.length === 0) return null;
+   133→    if (!lastExportAt) return { label: "never" };
+   134→    const t = Date.parse(lastExportAt);
+   135→    if (Number.isNaN(t)) return { label: "never" };
+   136→    const days = Math.floor((Date.now() - t) / 86400000);
+   137→    return days > 7 ? { label: `${days} day${days === 1 ? "" : "s"} ago` } : null;
+   138→  }, [lastExportAt, tests.length]);
+   139→
+   140→  const star = useMemo(() => northStar(tests, responses), [tests, responses]);
+   141→  const timeline = useMemo(() => scoreTimeline(tests), [tests]);
+   142→  const subjAcc = useMemo(() => subjectAccuracy(responses), [responses]);
+   143→  const tags = useMemo(() => errorTagCounts(responses), [responses]);
+   144→  const negs = useMemo(() => negativeMarksByTest(tests, responses), [tests, responses]);
+   145→  const timeSubj = useMemo(() => timeBySubject(responses), [responses]);
+   146→
+   147→  const healthList = useMemo(
+   148→    () => [...computeChapterHealth(responses, tests).values()],
+   149→    [responses, tests]
+   150→  );
+   151→  const ambers = useMemo(() => amberQueue(healthList), [healthList]);
+   152→  const repeatFails = useMemo(() => repeatedFailureChapters(responses), [responses]);
+   153→  const due = useMemo(() => revisionDueRows(syllabus), [syllabus]);
+   154→
+   155→  const totals = useMemo(() => {
+   156→    const attempted = responses.filter((r) => r.attempted).length;
+   157→    const correct = responses.filter((r) => r.correct).length;
+   158→    const tagged = responses.filter((r) => !r.correct && r.error_tag).length;
+   159→    const wrong = responses.filter((r) => r.attempted && !r.correct).length;
+   160→    return {
+   161→      attempted,
+   162→      correct,
+   163→      wrong,
+   164→      accuracy: attempted ? Math.round((correct / attempted) * 100) : 0,
+   165→      tagCoverage: wrong ? Math.round((tagged / wrong) * 100) : 100,
+   166→      timeTotal: responses.reduce((a, r) => a + (r.time_spent || 0), 0),
+   167→    };
+   168→  }, [responses]);
+   169→
+   170→  // E3b: % of tagged-wrong alongside the raw counts (tooltip only — bars stay raw)
+   171→  const tagsWithPct = useMemo(
+   172→    () =>
+   173→      tags.map((t) => ({
+   174→        ...t,
+   175→        pct: totals.wrong > 0 ? Math.round((t.count / totals.wrong) * 100) : 0,
+   176→      })),
+   177→    [tags, totals.wrong]
+   178→  );
+   179→
+   180→  // E3a: raw / % toggle for the score timeline (component state only, default raw)
+   181→  const [timelineMode, setTimelineMode] = useState<"raw" | "pct">("raw");
+   182→  const timelineData = useMemo(
+   183→    () =>
+   184→      timeline.map((d) => ({
+   185→        ...d,
+   186→        pct: d.max > 0 ? Math.round((d.score / d.max) * 100) : 0,
+   187→      })),
+   188→    [timeline]
+   189→  );
+   190→
+   191→  // E2: study streak from daily_log
+   192→  const streak = useMemo(() => computeStreak(dailyLogs, today), [dailyLogs, today]);
+   193→
+   194→  const sortedTests = useMemo(
+   195→    () => [...tests].sort((a, b) => b.created_at - a.created_at),
+   196→    [tests]
+   197→  );
+   198→
+   199→  return (
+   200→    <div className="space-y-6">
+   201→      <PageTitle
+   202→        title="Dashboard"
+   203→        subtitle="Questions correctly solved under time — everything else serves this number."
+   204→        right={
+   205→          <Button
+   206→            size="sm"
+   207→            onClick={() => nav.go("test")}
+   208→            className="bg-emerald-700 hover:bg-emerald-800"
+   209→          >
+   210→            + New CBT
+   211→          </Button>
+   212→        }
+   213→      />
+   214→
+   215→      {/* F3: first-run onboarding — 3 terse steps, dismissible */}
+   216→      {onboarded === false ? (
+   217→        <div className="border border-emerald-200 bg-emerald-50/70 rounded-lg px-4 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+   218→          <div className="min-w-0">
+   219→            <div className="text-sm font-semibold text-stone-900 mb-1">First 3 moves</div>
+   220→            <ol className="list-decimal ml-4 text-sm text-stone-600 space-y-0.5">
+   221→              <li>Load demo questions (Data tab) or your own.</li>
+   222→              <li>Take a PDF test — a demo paper ships with the app (/demo-paper.pdf).</li>
+   223→              <li>Tag every mistake — that&apos;s where marks come back.</li>
+   224→            </ol>
+   225→          </div>
+   226→          <div className="flex items-center gap-2 shrink-0">
+   227→            <Button
+   228→              size="sm"
+   229→              variant="outline"
+   230→              className="h-8 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+   231→              onClick={() => {
+   232→                void dismissOnboarding();
+   233→                nav.go("data");
+   234→              }}
+   235→            >
+   236→              Open Data tab
+   237→            </Button>
+   238→            <Button
+   239→              size="sm"
+   240→              className="h-8 bg-emerald-700 hover:bg-emerald-800"
+   241→              onClick={() => void dismissOnboarding()}
+   242→            >
+   243→              Got it
+   244→            </Button>
+   245→          </div>
+   246→        </div>
+   247→      ) : null}
+   248→
+   249→      {/* headline stats */}
+   250→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   251→        <StatCard label="Correct under time" value={star} tone="accent" hint="north-star metric" />
+   252→        <StatCard
+   253→          label="Accuracy (all tests)"
+   254→          value={`${totals.accuracy}%`}
+   255→          hint={`${totals.correct}/${totals.attempted} attempted questions`}
+   256→        />
+   257→        <StatCard
+   258→          label="Error tagging"
+   259→          value={`${totals.tagCoverage}%`}
+   260→          tone={totals.tagCoverage < 80 ? "warn" : "good"}
+   261→          hint="share of wrong answers tagged C/F/A/R/T/G"
+   262→        />
+   263→        <StatCard
+   264→          label="Time on record"
+   265→          value={fmtSecs(totals.timeTotal)}
+   266→          hint="across all in-app tests"
+   267→        />
+   268→      </div>
+   269→
+   270→      <div className="grid lg:grid-cols-3 gap-6">
+   271→        {/* C3: backup nudge — slim amber banner above the Today card */}
+   272→        {backupNudge && !backupDismissed ? (
+   273→          <div className="lg:col-span-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+   274→            <span className="text-sm text-amber-800">
+   275→              <span className="font-medium">Last backup: {backupNudge.label}</span> — export a JSON
+   276→              backup to keep your data safe.
+   277→            </span>
+   278→            <div className="flex items-center gap-2">
+   279→              <Button
+   280→                size="sm"
+   281→                variant="outline"
+   282→                className="h-8 border-amber-300 text-amber-800 hover:bg-amber-100"
+   283→                onClick={() => nav.go("data")}
+   284→              >
+   285→                Export backup
+   286→              </Button>
+   287→              <Button
+   288→                size="sm"
+   289→                variant="ghost"
+   290→                className="h-8 text-amber-700 hover:text-amber-800 hover:bg-amber-100"
+   291→                onClick={() => setBackupDismissed(true)}
+   292→              >
+   293→                Dismiss
+   294→              </Button>
+   295→            </div>
+   296→          </div>
+   297→        ) : null}
+   298→
+   299→        {/* Today card */}
+   300→        <div className="lg:col-span-1">
+   301→          <TodayCard log={dailyLogs.find((d) => d.date === today)} date={today} streak={streak} />
+   302→        </div>
+   303→
+   304→        {/* Amber queue + repeated failures */}
+   305→        <div className="lg:col-span-2 grid md:grid-cols-2 gap-6">
+   306→          <SectionCard
+   307→            title="Amber-first repair queue"
+   308→            subtitle="40–70% accuracy chapters, most recent first — 50%→80% beats resurrecting deep red"
+   309→          >
+   310→            {ambers.length === 0 ? (
+   311→              <EmptyNote>
+   312→                No Amber chapters yet. Take a chapter test — the queue builds itself from your
+   313→                errors.
+   314→              </EmptyNote>
+   315→            ) : (
+   316→              <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
+   317→                {ambers.slice(0, 12).map((h) => (
+   318→                  <li
+   319→                    key={`${h.subject}:${h.chapter}`}
+   320→                    className="flex items-center justify-between gap-2 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+   321→                  >
+   322→                    <div className="min-w-0">
+   323→                      <div className="font-medium text-stone-800 truncate">{h.chapter}</div>
+   324→                      <div className="text-xs text-stone-500">
+   325→                        {h.subject} · {h.correct}/{h.attempted} correct
+   326→                      </div>
+   327→                    </div>
+   328→                    <div className="flex items-center gap-1.5 shrink-0">
+   329→                      <Badge className="bg-amber-400 hover:bg-amber-400 text-amber-950 border-0">
+   330→                        {h.accuracy}%
+   331→                      </Badge>
+   332→                      {/* D5: one click to a pre-filled test for this chapter */}
+   333→                      <Button
+   334→                        size="sm"
+   335→                        variant="outline"
+   336→                        className="h-7 px-2.5 text-[11px]"
+   337→                        aria-label={`Create a test for ${h.chapter}`}
+   338→                        onClick={() => nav.toTestCreate({ subject: h.subject, chapter: h.chapter })}
+   339→                      >
+   340→                        Test
+   341→                      </Button>
+   342→                    </div>
+   343→                  </li>
+   344→                ))}
+   345→              </ul>
+   346→            )}
+   347→          </SectionCard>
+   348→
+   349→          <SectionCard
+   350→            title="Chapters producing repeated failure"
+   351→            subtitle="flagged when errors appear across ≥2 different tests"
+   352→          >
+   353→            {repeatFails.length === 0 ? (
+   354→              <EmptyNote>No chapter has failed across 2+ tests yet.</EmptyNote>
+   355→            ) : (
+   356→              <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
+   357→                {repeatFails.slice(0, 12).map((r) => (
+   358→                  <li
+   359→                    key={`${r.subject}:${r.chapter}`}
+   360→                    className="flex items-center justify-between gap-2 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2"
+   361→                  >
+   362→                    <div className="min-w-0">
+   363→                      <div className="font-medium text-stone-800 truncate">{r.chapter}</div>
+   364→                      <div className="text-xs text-stone-500">{r.subject}</div>
+   365→                    </div>
+   366→                    <div className="flex items-center gap-1.5 shrink-0">
+   367→                      <Badge variant="outline" className="border-red-300 text-red-700">
+   368→                        failed {r.tests_failed} tests · {r.wrongs} wrong
+   369→                      </Badge>
+   370→                      {/* D5: one click to a pre-filled test for this chapter */}
+   371→                      <Button
+   372→                        size="sm"
+   373→                        variant="outline"
+   374→                        className="h-7 px-2.5 text-[11px]"
+   375→                        aria-label={`Create a test for ${r.chapter}`}
+   376→                        onClick={() => nav.toTestCreate({ subject: r.subject, chapter: r.chapter })}
+   377→                      >
+   378→                        Test
+   379→                      </Button>
+   380→                    </div>
+   381→                  </li>
+   382→                ))}
+   383→              </ul>
+   384→            )}
+   385→          </SectionCard>
+   386→        </div>
+   387→      </div>
+   388→
+   389→      {/* Revision due strip */}
+   390→      <SectionCard
+   391→        title="Revision due"
+   392→        subtitle="schedule: same night → next day → 3–4 days → 1 week"
+   393→        action={
+   394→          <Button size="sm" variant="outline" onClick={() => nav.go("syllabus")}>
+   395→            Open tracker
+   396→          </Button>
+   397→        }
+   398→      >
+   399→        {due.length === 0 ? (
+   400→          <EmptyNote>Nothing due. Mark revisions in the syllabus tracker to start the loop.</EmptyNote>
+   401→        ) : (
+   402→          <div className="flex flex-wrap gap-2">
+   403→            {due.slice(0, 24).map((s) => (
+   404→              <Badge
+   405→                key={s.id}
+   406→                variant="outline"
+   407→                className="border-emerald-300 bg-emerald-50 text-emerald-800 text-xs"
+   408→              >
+   409→                {s.chapter} · due {s.next_revision === today ? "tonight" : s.next_revision}
+   410→              </Badge>
+   411→            ))}
+   412→            {due.length > 24 ? (
+   413→              <span className="text-xs text-stone-400 self-center">+{due.length - 24} more</span>
+   414→            ) : null}
+   415→          </div>
+   416→        )}
+   417→      </SectionCard>
+   418→
+   419→      {/* charts grid */}
+   420→      <div className="grid md:grid-cols-2 gap-6">
+   421→        <SectionCard
+   422→          title="Score timeline"
+   423→          subtitle="every test — in-app, PDF and external — on one line"
+   424→          className="md:col-span-2"
+   425→          action={
+   426→            <div className="flex gap-1" role="group" aria-label="Timeline units">
+   427→              {(["raw", "pct"] as const).map((m) => (
+   428→                <button
+   429→                  key={m}
+   430→                  onClick={() => setTimelineMode(m)}
+   431→                  aria-pressed={timelineMode === m}
+   432→                  className={cn(
+   433→                    "px-2.5 py-0.5 rounded-full text-[11px] transition-colors",
+   434→                    timelineMode === m
+   435→                      ? "bg-stone-900 text-white"
+   436→                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+   437→                  )}
+   438→                >
+   439→                  {m === "raw" ? "raw" : "%"}
+   440→                </button>
+   441→              ))}
+   442→            </div>
+   443→          }
+   444→        >
+   445→          {timeline.length === 0 ? (
+   446→            <EmptyNote>Log a test (CBT, PDF or external) and the line appears here.</EmptyNote>
+   447→          ) : (
+   448→            <div className="h-64">
+   449→              <ResponsiveContainer width="100%" height="100%">
+   450→                <LineChart data={timelineData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+   451→                  <CartesianGrid {...GRID} />
+   452→                  <XAxis dataKey="label" tick={{ ...TICK_MONO }} />
+   453→                  <YAxis
+   454→                    tick={TICK_MONO}
+   455→                    tickFormatter={timelineMode === "pct" ? (v: number) => `${v}%` : undefined}
+   456→                  />
+   457→                  <Tooltip {...chartTooltip} />
+   458→                  <Line
+   459→                    type="monotone"
+   460→                    dataKey={timelineMode === "pct" ? "pct" : "score"}
+   461→                    stroke={CH.green}
+   462→                    strokeWidth={2.5}
+   463→                    dot={false} activeDot={{ r: 4, fill: CH.green }}
+   464→                    name={timelineMode === "pct" ? "% of max" : "score"}
+   465→                  />
+   466→                </LineChart>
+   467→              </ResponsiveContainer>
+   468→            </div>
+   469→          )}
+   470→        </SectionCard>
+   471→
+   472→        <SectionCard title="Accuracy by subject" subtitle="in-app attempts only">
+   473→          {totals.attempted === 0 ? (
+   474→            <EmptyNote>No attempts recorded yet.</EmptyNote>
+   475→          ) : (
+   476→            <div className="h-56">
+   477→              <ResponsiveContainer width="100%" height="100%">
+   478→                <BarChart data={subjAcc} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+   479→                  <CartesianGrid {...GRID} />
+   480→                  <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
+   481→                  <YAxis domain={[0, 100]} tick={{ ...TICK_MONO }} />
+   482→                  <Tooltip {...chartTooltip} />
+   483→                  <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
+   484→                  <Bar dataKey="accuracy" name="accuracy %" radius={[4, 4, 0, 0]}>
+   485→                    {subjAcc.map((s) => (
+   486→                      <Cell
+   487→                        key={s.subject}
+   488→                        fill={s.accuracy >= 70 ? CH.green : s.accuracy >= 40 ? CH.amber : CH.red}
+   489→                      />
+   490→                    ))}
+   491→                  </Bar>
+   492→                </BarChart>
+   493→              </ResponsiveContainer>
+   494→            </div>
+   495→          )}
+   496→        </SectionCard>
+   497→
+   498→        <SectionCard
+   499→          title="Error tags"
+   500→          subtitle="C / F / A / R / T / G distribution of wrong answers — hover for share of tagged"
+   501→        >
+   502→          {totals.wrong === 0 ? (
+   503→            <EmptyNote>No wrong answers yet — either perfect or untested.</EmptyNote>
+   504→          ) : (
+   505→            <div className="h-56">
+   506→              <ResponsiveContainer width="100%" height="100%">
+   507→                <BarChart data={tagsWithPct} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+   508→                  <CartesianGrid {...GRID} />
+   509→                  <XAxis dataKey="tag" tick={TICK} interval={0} />
+   510→                  <YAxis allowDecimals={false} tick={{ ...TICK_MONO }} />
+   511→                  <Tooltip content={<TagPctTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
+   512→                  <Bar dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[4, 4, 0, 0]} />
+   513→                </BarChart>
+   514→              </ResponsiveContainer>
+   515→            </div>
+   516→          )}
+   517→        </SectionCard>
+   518→
+   519→        <SectionCard
+   520→          title="Marks lost to negatives"
+   521→          subtitle="actual score vs what it would be with guesses skipped"
+   522→        >
+   523→          {negs.length === 0 ? (
+   524→            <EmptyNote>No tests yet.</EmptyNote>
+   525→          ) : (
+   526→            <div className="h-56">
+   527→              <ResponsiveContainer width="100%" height="100%">
+   528→                <BarChart data={negs} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+   529→                  <CartesianGrid {...GRID} />
+   530→                  <XAxis dataKey="label" tick={TICK} interval={0} />
+   531→                  <YAxis tick={{ ...TICK_MONO }} />
+   532→                  <Tooltip {...chartTooltip} />
+   533→                  <Legend wrapperStyle={{ fontSize: 11 }} />
+   534→                  <Bar dataKey="actual" name="actual" fill={CH.green} radius={[3, 3, 0, 0]} />
+   535→                  <Bar dataKey="ifSkipped" name="if guesses skipped" fill={CH.stone} radius={[3, 3, 0, 0]} />
+   536→                </BarChart>
+   537→              </ResponsiveContainer>
+   538→            </div>
+   539→          )}
+   540→        </SectionCard>
+   541→
+   542→        <SectionCard title="Time by subject" subtitle="total seconds spent per subject (in-app tests)">
+   543→          {timeSubj.length === 0 ? (
+   544→            <EmptyNote>No time recorded yet.</EmptyNote>
+   545→          ) : (
+   546→            <div className="h-56">
+   547→              <ResponsiveContainer width="100%" height="100%">
+   548→                <BarChart data={timeSubj} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+   549→                  <CartesianGrid {...GRID} />
+   550→                  <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
+   551→                  <YAxis tick={{ ...TICK_MONO }} />
+   552→                  <Tooltip {...chartTooltip} />
+   553→                  <Bar dataKey="minutes" name="minutes" fill={CH.amber} radius={[4, 4, 0, 0]} />
+   554→                </BarChart>
+   555→              </ResponsiveContainer>
+   556→            </div>
+   557→          )}
+   558→        </SectionCard>
+   559→      </div>
+   560→
+   561→      {/* recent tests */}
+   562→      <SectionCard
+   563→        title="Recent tests"
+   564→        subtitle="every test gets tagged within 24 hours — or it didn't happen"
+   565→        action={
+   566→          <Button size="sm" variant="outline" onClick={() => nav.go("external")}>
+   567→            + Log external
+   568→          </Button>
+   569→        }
+   570→      >
+   571→        {sortedTests.length === 0 ? (
+   572→          <EmptyNote>No tests logged yet. Start with a 10-question chapter test.</EmptyNote>
+   573→        ) : (
+   574→          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+   575→            <table className="w-full text-sm">
+   576→              <thead className="text-left text-xs text-stone-400 uppercase">
+   577→                <tr>
+   578→                  <th className="py-2 pr-3">Date</th>
+   579→                  <th className="py-2 pr-3">Test</th>
+   580→                  <th className="py-2 pr-3">Type</th>
+   581→                  <th className="py-2 pr-3 text-right">Score</th>
+   582→                  <th className="py-2 pr-3 text-right">P</th>
+   583→                  <th className="py-2 pr-3 text-right">C</th>
+   584→                  <th className="py-2 pr-3 text-right">M</th>
+   585→                  <th className="py-2" />
+   586→                </tr>
+   587→              </thead>
+   588→              <tbody>
+   589→                {sortedTests.map((t) => (
+   590→                  <tr key={t.id} className="border-t border-stone-100">
+   591→                    <td className="py-2 pr-3 text-stone-500 whitespace-nowrap">{t.date}</td>
+   592→                    <td className="py-2 pr-3 font-medium text-stone-800 max-w-52 truncate">
+   593→                      {t.name}
+   594→                    </td>
+   595→                    <td className="py-2 pr-3">
+   596→                      <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+   597→                        {t.type}
+   598→                      </Badge>
+   599→                    </td>
+   600→                    <td className="py-2 pr-3 text-right font-semibold tabular-nums">
+   601→                      {t.score}
+   602→                      <span className="text-stone-400 font-normal">/{t.max_score}</span>
+   603→                    </td>
+   604→                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+   605→                      {t.subject_scores.Physics ?? "—"}
+   606→                    </td>
+   607→                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+   608→                      {t.subject_scores.Chemistry ?? "—"}
+   609→                    </td>
+   610→                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+   611→                      {t.subject_scores.Mathematics ?? "—"}
+   612→                    </td>
+   613→                    <td className="py-2 text-right">
+   614→                      {t.type !== "external" ? (
+   615→                        <Button size="sm" variant="ghost" onClick={() => nav.openResults(t.id)}>
+   616→                          Review
+   617→                        </Button>
+   618→                      ) : null}
+   619→                    </td>
+   620→                  </tr>
+   621→                ))}
+   622→              </tbody>
+   623→            </table>
+   624→          </div>
+   625→        )}
+   626→      </SectionCard>
+   627→    </div>
+   628→  );
+   629→}
+   630→
+   631→// ─── Today card ──────────────────────────────────────────────────────────────
+   632→const BLOCKS: { key: keyof DailyLog["blocks"]; label: string }[] = [
+   633→  { key: "math", label: "Math — 2h" },
+   634→  { key: "physics", label: "Physics — 1h 45m" },
+   635→  { key: "chemistry", label: "Chemistry — 1h 45m" },
+   636→  { key: "recall", label: "Recall + errors — 30m" },
+   637→];
+   638→
+   639→function TodayCard({
+   640→  log,
+   641→  date,
+   642→  streak,
+   643→}: {
+   644→  log: DailyLog | undefined;
+   645→  date: string;
+   646→  streak: number;
+   647→}) {
+   648→  const [chapters, setChapters] = useState(log?.chapters ?? "");
+   649→  const [editing, setEditing] = useState(false);
+   650→
+   651→  // E5: read the FRESHEST row before writing — a block toggle must never
+   652→  // clobber a concurrent write or the unsaved "tonight's chapters" text.
+   653→  // The daily_log object store is keyed "id" (like every non-kv store), so
+   654→  // rows are persisted as { id: date, ...log } — a bare {date,…} row throws
+   655→  // DataError on put (pre-existing bug: the old Today card never persisted).
+   656→  async function freshRow(): Promise<DailyLog & { id: string }> {
+   657→    const row = await get("daily_log", date);
+   658→    if (row) return { ...row, id: date };
+   659→    return {
+   660→      id: date,
+   661→      date,
+   662→      blocks: { math: false, physics: false, chemistry: false, recall: false },
+   663→      chapters: "",
+   664→    };
+   665→  }
+   666→
+   667→  async function toggle(key: keyof DailyLog["blocks"]) {
+   668→    const fresh = await freshRow();
+   669→    const next: DailyLog & { id: string } = {
+   670→      ...fresh,
+   671→      id: date,
+   672→      blocks: { ...fresh.blocks, [key]: !fresh.blocks[key] },
+   673→      // carry unsaved chapter text along instead of wiping it
+   674→      chapters: chapters.trim() ? chapters : fresh.chapters,
+   675→    };
+   676→    await put("daily_log", next);
+   677→  }
+   678→
+   679→  async function saveChapters() {
+   680→    const fresh = await freshRow();
+   681→    const next: DailyLog & { id: string } = { ...fresh, id: date, chapters, date };
+   682→    await put("daily_log", next);
+   683→    setEditing(false);
+   684→  }
+   685→
+   686→  const done = log ? BLOCKS.filter((b) => log.blocks[b.key]).length : 0;
+   687→
+   688→  return (
+   689→    <SectionCard
+   690→      title="Today"
+   691→      subtitle={date}
+   692→      action={
+   693→        <div className="flex items-center gap-1.5">
+   694→          {/* E2: streak chip — plain text, subtle */}
+   695→          {streak >= 1 ? (
+   696→            <Badge
+   697→              variant="outline"
+   698→              className={
+   699→                streak >= 3
+   700→                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+   701→                  : "border-stone-300 text-stone-600"
+   702→              }
+   703→            >
+   704→              {streak}-day streak
+   705→            </Badge>
+   706→          ) : null}
+   707→          <Badge
+   708→            variant="outline"
+   709→            className={
+   710→              done === 4
+   711→                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+   712→                : "border-stone-300 text-stone-500"
+   713→            }
+   714→          >
+   715→            {done}/4 blocks
+   716→          </Badge>
+   717→        </div>
+   718→      }
+   719→    >
+   720→      <ul className="space-y-2">
+   721→        {BLOCKS.map((b) => (
+   722→          <li key={b.key}>
+   723→            <label className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2.5 cursor-pointer hover:bg-stone-50 transition-colors">
+   724→              <Checkbox
+   725→                checked={log?.blocks[b.key] ?? false}
+   726→                onCheckedChange={() => void toggle(b.key)}
+   727→                aria-label={b.label}
+   728→              />
+   729→              <span
+   730→                className={
+   731→                  log?.blocks[b.key]
+   732→                    ? "text-sm text-stone-400 line-through"
+   733→                    : "text-sm text-stone-800"
+   734→                }
+   735→              >
+   736→                {b.label}
+   737→              </span>
+   738→            </label>
+   739→          </li>
+   740→        ))}
+   741→      </ul>
+   742→      <div className="mt-3">
+   743→        <div className="text-[11px] uppercase tracking-wide text-stone-400 font-medium mb-1">
+   744→          Tonight&apos;s chapters
+   745→        </div>
+   746→        {editing ? (
+   747→          <div className="flex gap-2">
+   748→            <Input
+   749→              value={chapters}
+   750→              onChange={(e) => setChapters(e.target.value)}
+   751→              placeholder="e.g. Electrostatics PYQs, GOC notes, 1-3-7 rev of Kinematics"
+   752→              onKeyDown={(e) => {
+   753→                if (e.key === "Enter") void saveChapters();
+   754→              }}
+   755→              onBlur={() => void saveChapters()}
+   756→              autoFocus
+   757→            />
+   758→            <Button size="sm" onClick={() => void saveChapters()} className="bg-emerald-700 hover:bg-emerald-800">
+   759→              Save
+   760→            </Button>
+   761→          </div>
+   762→        ) : (
+   763→          <button
+   764→            className="w-full text-left text-sm rounded-lg border border-dashed border-stone-300 px-3 py-2.5 text-stone-600 hover:bg-stone-50 transition-colors"
+   765→            onClick={() => {
+   766→              setChapters(log?.chapters ?? "");
+   767→              setEditing(true);
+   768→            }}
+   769→          >
+   770→            {log?.chapters ? log.chapters : "Click to write what you will physically do tonight…"}
+   771→          </button>
+   772→        )}
+   773→      </div>
+   774→      <p className="text-[11px] text-stone-400 mt-3">
+   775→        A plan fails if Tuesday night arrives and you don&apos;t know what to physically do. This
+   776→        card answers that in one glance.
+   777→      </p>
+   778→    </SectionCard>
+   779→  );
+   780→}
+   781→

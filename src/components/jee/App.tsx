@@ -1,12 +1,20 @@
 "use client";
 
 // ─── App shell: navigation + north-star header + view switching ─────────────
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   LayoutDashboard,
   FilePlus2,
@@ -18,6 +26,10 @@ import {
   ListTree,
   Sigma,
   Database,
+  Sun,
+  Moon,
+  Monitor,
+  Check,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -33,6 +45,7 @@ import {
 import { toast } from "sonner";
 import { PwaRegister } from "./PwaRegister";
 import { cn } from "@/lib/utils";
+import { EASE } from "./motion";
 import {
   clearSession,
   getAll,
@@ -268,36 +281,38 @@ export function AppRoot() {
   const nav: NavController = { go, openResults, startSession, toTestCreate, importPaper };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <PwaRegister />
-      <Toaster position="bottom-right" />
-      {/* chrome recedes: translucent header, content area carries the contrast */}
-      <header className="bg-white/90 backdrop-blur-md border-b border-border sticky top-0 z-30">
+    <MotionConfig reducedMotion="user">
+      <div className="min-h-screen flex flex-col bg-background">
+        <PwaRegister />
+        <Toaster position="bottom-right" />
+        {/* chrome recedes: translucent header, content area carries the contrast */}
+        <header className="bg-background/85 backdrop-blur-md border-b border-border sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center font-black text-sm shrink-0">
-              JEE
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground grid place-items-center font-black text-sm shrink-0">
+                JEE
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-foreground leading-tight truncate">JEE Study App</div>
+                <div className="text-[11px] text-muted-foreground leading-tight truncate hidden sm:block">
+                  local-first · all data stays in this browser
+                </div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <div className="font-semibold text-foreground leading-tight truncate">JEE Study App</div>
-              <div className="text-[11px] text-muted-foreground leading-tight truncate hidden sm:block">
-                local-first · all data stays in this browser
+            <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 shrink-0">
+              {/* E1: exam countdown chip — wraps below the north-star on mobile */}
+              <CountdownChip />
+              <ThemeToggle />
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
+                  Correct under time
+                </div>
+                <div className="font-mono tabular-nums text-xl font-bold text-primary tracking-tight leading-none">
+                  {star}
+                </div>
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 shrink-0">
-            {/* E1: exam countdown chip — wraps below the north-star on mobile */}
-            <CountdownChip />
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
-                Correct under time
-              </div>
-              <div className="font-mono tabular-nums text-xl font-bold text-primary tracking-tight leading-none">
-                {star}
-              </div>
-            </div>
-          </div>
-        </div>
         <nav className="max-w-7xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto" aria-label="Main">
           {NAV_GROUPS.map((group, gi) => (
             <div key={gi} className="flex items-center gap-1">
@@ -312,18 +327,27 @@ export function AppRoot() {
                     onClick={() => go(n.id)}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "press px-2.5 py-1.5 rounded-full text-[13px] whitespace-nowrap flex items-center gap-1.5",
+                      "press relative px-2.5 py-1.5 rounded-full text-[13px] whitespace-nowrap flex items-center gap-1.5",
                       active
-                        ? "bg-primary text-primary-foreground font-medium"
-                        : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"
+                        ? "text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                   >
+                    {/* sliding pill — layoutId glides it between nav items */}
+                    {active ? (
+                      <motion.span
+                        layoutId="nav-pill"
+                        className="absolute inset-0 rounded-full bg-primary"
+                        transition={{ type: "spring", stiffness: 550, damping: 42 }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
                     <Icon
-                      className={cn("w-3.5 h-3.5 shrink-0", active ? "opacity-100" : "opacity-70")}
+                      className={cn("relative z-10 w-3.5 h-3.5 shrink-0", active ? "opacity-100" : "opacity-70")}
                       strokeWidth={active ? 2 : 1.5}
                       aria-hidden="true"
                     />
-                    {n.label}
+                    <span className="relative z-10">{n.label}</span>
                   </button>
                 );
               })}
@@ -333,16 +357,16 @@ export function AppRoot() {
       </header>
 
       {resumable && !session ? (
-        <div className="bg-amber-50 border-b border-amber-200">
+        <div className="bg-amber-50 border-b border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25">
           <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-sm text-amber-800">
+            <div className="text-sm text-amber-800 dark:text-amber-300">
               <Badge className="bg-amber-500 hover:bg-amber-500 text-white border-0 mr-2">
                 paused test
               </Badge>
               “{resumable.name}” is still open — the clock never stopped.
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={resume} className="bg-emerald-700 hover:bg-emerald-800">
+              <Button size="sm" onClick={resume} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
                 Resume
               </Button>
               {/* C5: discarding a paused session asks for confirmation */}
@@ -355,39 +379,50 @@ export function AppRoot() {
       ) : null}
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6">
-        {view === "dashboard" ? <DashboardView nav={nav} key={`d-${dataVersion}`} /> : null}
-        {view === "bank" ? <QuestionBankView /> : null}
-        {view === "test" ? (
-          <TestCreateView
-            key={testPrefill ? `t-${testPrefill.subject}:${testPrefill.chapter}` : "t-blank"}
-            nav={nav}
-            prefill={testPrefill}
-          />
-        ) : null}
-        {view === "player" && session ? (
-          <PlayerView
-            session={session}
-            pdfBlob={pdfBlobRef.current}
-            onPersist={setSession}
-            onFinish={finishSession}
-          />
-        ) : null}
-        {view === "results" && resultsTestId ? (
-          <ResultsView testId={resultsTestId} nav={nav} />
-        ) : null}
-        {view === "pdf" ? (
-          <PdfImportView
-            key={paperForImport ? `pdf-${paperForImport.id}` : "pdf-blank"}
-            nav={nav}
-            initialPaper={paperForImport ?? undefined}
-          />
-        ) : null}
-        {view === "papers" ? <PapersView nav={nav} /> : null}
-        {view === "performance" ? <PerformanceView nav={nav} /> : null}
-        {view === "external" ? <ExternalLogView nav={nav} /> : null}
-        {view === "syllabus" ? <SyllabusView /> : null}
-        {view === "formula" ? <FormulaView nav={nav} /> : null}
-        {view === "data" ? <DataView /> : null}
+        {/* page transitions: old view sinks away, new one rises in */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={view}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: EASE }}
+          >
+            {view === "dashboard" ? <DashboardView nav={nav} key={`d-${dataVersion}`} /> : null}
+            {view === "bank" ? <QuestionBankView /> : null}
+            {view === "test" ? (
+              <TestCreateView
+                key={testPrefill ? `t-${testPrefill.subject}:${testPrefill.chapter}` : "t-blank"}
+                nav={nav}
+                prefill={testPrefill}
+              />
+            ) : null}
+            {view === "player" && session ? (
+              <PlayerView
+                session={session}
+                pdfBlob={pdfBlobRef.current}
+                onPersist={setSession}
+                onFinish={finishSession}
+              />
+            ) : null}
+            {view === "results" && resultsTestId ? (
+              <ResultsView testId={resultsTestId} nav={nav} />
+            ) : null}
+            {view === "pdf" ? (
+              <PdfImportView
+                key={paperForImport ? `pdf-${paperForImport.id}` : "pdf-blank"}
+                nav={nav}
+                initialPaper={paperForImport ?? undefined}
+              />
+            ) : null}
+            {view === "papers" ? <PapersView nav={nav} /> : null}
+            {view === "performance" ? <PerformanceView nav={nav} /> : null}
+            {view === "external" ? <ExternalLogView nav={nav} /> : null}
+            {view === "syllabus" ? <SyllabusView /> : null}
+            {view === "formula" ? <FormulaView nav={nav} /> : null}
+            {view === "data" ? <DataView /> : null}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       <footer className="mt-auto bg-card border-t border-border">
@@ -422,7 +457,58 @@ export function AppRoot() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+      </div>
+    </MotionConfig>
+  );
+}
+
+// ─── Theme toggle — sun/moon crossfade + Light/Dark/System menu ───────────
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  // false on the server snapshot, true once hydrated — no setState-in-effect
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+  const current = mounted ? (theme ?? "system") : "system";
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="press h-8 w-8 grid place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Change theme"
+        >
+          {/* both icons always mounted — pure-CSS crossfade means zero hydration
+              risk and the icon responds even before React hydrates */}
+          <span className="relative w-4 h-4">
+            <Sun
+              className="absolute inset-0 w-4 h-4 transition-all duration-300 rotate-0 scale-100 dark:-rotate-90 dark:scale-0"
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
+            <Moon
+              className="absolute inset-0 w-4 h-4 transition-all duration-300 -rotate-90 scale-0 dark:rotate-0 dark:scale-100"
+              strokeWidth={1.75}
+              aria-hidden="true"
+            />
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-36">
+        {([
+          ["light", "Light", Sun],
+          ["dark", "Dark", Moon],
+          ["system", "System", Monitor],
+        ] as const).map(([id, label, Icon]) => (
+          <DropdownMenuItem key={id} onClick={() => setTheme(id)} className="gap-2">
+            <Icon className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
+            {label}
+            {current === id ? <Check className="w-3.5 h-3.5 ml-auto text-primary" aria-hidden="true" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -494,7 +580,7 @@ function CountdownChip() {
     >
       <PopoverTrigger asChild>
         <button
-          className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-100 transition-colors whitespace-nowrap tabular-nums"
+          className="press rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors whitespace-nowrap tabular-nums"
           aria-label={`Exam countdown: ${label}. Change target date.`}
         >
           {label}
@@ -502,7 +588,7 @@ function CountdownChip() {
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="end">
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-stone-800">Target exam date</div>
+          <div className="text-xs font-semibold text-foreground">Target exam date</div>
           <Input
             type="date"
             value={draft}
@@ -517,7 +603,7 @@ function CountdownChip() {
           >
             Set countdown
           </Button>
-          <p className="text-[10px] text-stone-400 leading-snug">
+          <p className="text-[10px] text-muted-foreground/70 leading-snug">
             Default: JEE Main 2027 Session 1 (Jan 22). Stored locally on this device.
           </p>
         </div>

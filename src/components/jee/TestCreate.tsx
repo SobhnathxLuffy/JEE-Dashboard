@@ -268,7 +268,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
               <Button variant="outline" size="sm" onClick={autoDuration} className="mb-0.5">
                 Suggest {suggestedDuration} min
               </Button>
-              <p className="text-xs text-stone-400 mb-1.5">
+              <p className="text-xs text-muted-foreground/70 mb-1.5">
                 {testType === "full"
                   ? "Full mock = 180 min (25 Qs × 3 subjects)"
                   : "Rule of thumb: 1 min per question for chapter tests"}
@@ -284,13 +284,13 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                 onCheckedChange={(v) => setShuffle(v === true)}
                 className="h-5 w-5"
               />
-              <span className="text-xs text-stone-600">
+              <span className="text-xs text-muted-foreground">
                 Shuffle within subject (order always stays P → C → M)
               </span>
             </label>
             {/* full-mock shortfall warning — advisory, never blocks the start */}
             {testType === "full" && totalPicked < 75 ? (
-              <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+              <p className="mt-3 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-md px-2.5 py-2">
                 ⚠ Full mock wants 75 questions (20 MCQ + 5 numerical × 3 subjects) — you have{" "}
                 <strong>{totalPicked}</strong>. Fine for a partial run; the suggested duration and
                 max score simply follow the smaller paper.
@@ -322,8 +322,8 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                     className={cn(
                       "px-3 py-1.5 rounded-full text-sm transition-colors",
                       activeSubject === s
-                        ? "bg-emerald-700 text-white font-medium"
-                        : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
+                        : "bg-muted text-muted-foreground hover:bg-accent"
                     )}
                   >
                     {s}
@@ -342,10 +342,10 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                       className={cn(
                         "px-3 py-1.5 rounded-full text-xs border transition-colors",
                         on
-                          ? "bg-emerald-700 text-white border-emerald-700"
+                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
                           : count === 0
-                            ? "border-stone-100 text-stone-300 cursor-not-allowed"
-                            : "border-stone-300 text-stone-600 hover:border-emerald-500 hover:text-emerald-700 bg-white"
+                            ? "border-border/60 text-muted-foreground/50 cursor-not-allowed"
+                            : "border-border text-muted-foreground hover:border-emerald-500 dark:hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-400 bg-card"
                       )}
                     >
                       {ch} <span className="opacity-60">({count})</span>
@@ -354,9 +354,9 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                 })}
               </div>
               {pickedChapters.length > 0 ? (
-                <div className="mt-3 pt-3 border-t border-stone-100 flex flex-wrap gap-1.5">
+                <div className="mt-3 pt-3 border-t border-border/60 flex flex-wrap gap-1.5">
                   {pickedChapters.map((ch) => (
-                    <Badge key={ch} variant="outline" className="border-emerald-300 text-emerald-800 text-xs">
+                    <Badge key={ch} variant="outline" className="border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 text-xs">
                       {ch}
                     </Badge>
                   ))}
@@ -403,14 +403,14 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                           className={cn(
                             "w-full text-left text-sm rounded-lg border px-3 py-2 transition-colors",
                             on
-                              ? "border-emerald-600 bg-emerald-50"
-                              : "border-stone-200 hover:bg-stone-50"
+                              ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-500/10"
+                              : "border-border hover:bg-accent/50"
                           )}
                         >
-                          <span className="text-[10px] uppercase text-stone-400 mr-2">
+                          <span className="text-[10px] uppercase text-muted-foreground/70 mr-2">
                             {q.subject.slice(0, 1)} · {q.type === "numerical" ? "NUM" : "MCQ"}
                           </span>
-                          <span className="text-stone-700">{q.question.slice(0, 110)}{q.question.length > 110 ? "…" : ""}</span>
+                          <span className="text-foreground/80">{q.question.slice(0, 110)}{q.question.length > 110 ? "…" : ""}</span>
                         </button>
                       </li>
                     );
@@ -426,35 +426,35 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
           <SectionCard title="Ready to start?" subtitle="the clock starts the moment you enter">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-stone-500">Mode</span>
+                <span className="text-muted-foreground">Mode</span>
                 <span className="font-medium">{pickMode === "chapters" ? "by chapter" : "by question"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-stone-500">Questions</span>
+                <span className="text-muted-foreground">Questions</span>
                 <span className="font-medium tabular-nums">{totalPicked}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-stone-500">Max score</span>
+                <span className="text-muted-foreground">Max score</span>
                 <span className="font-medium tabular-nums">{totalPicked * 4}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-stone-500">Duration</span>
+                <span className="text-muted-foreground">Duration</span>
                 <span className="font-medium tabular-nums">{duration} min</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-stone-500">Scoring</span>
+                <span className="text-muted-foreground">Scoring</span>
                 <span className="font-medium">+4 / −1 / 0 (incl. numericals)</span>
               </div>
             </div>
 
             {/* paper preview: first 10 of the exact list that would run */}
             {orderedIds.length > 0 ? (
-              <div className="mt-4 pt-3 border-t border-stone-100">
+              <div className="mt-4 pt-3 border-t border-border/60">
                 <button
                   type="button"
                   onClick={() => setShowPreview(!showPreview)}
                   aria-expanded={showPreview}
-                  className="text-xs text-stone-500 underline hover:text-stone-700"
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
                 >
                   {showPreview ? "Hide paper preview" : `Preview paper (first ${previewCount})`}
                 </button>
@@ -466,15 +466,15 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                       return (
                         <li
                           key={id}
-                          className="flex items-start gap-2 text-xs border border-stone-100 rounded-md px-2 py-1.5"
+                          className="flex items-start gap-2 text-xs border border-border/60 rounded-md px-2 py-1.5"
                         >
-                          <span className="font-bold text-stone-500 shrink-0 w-7">Q{i + 1}</span>
-                          <span className="text-stone-700 min-w-0 flex-1">
+                          <span className="font-bold text-muted-foreground shrink-0 w-7">Q{i + 1}</span>
+                          <span className="text-foreground/80 min-w-0 flex-1">
                             {q.question.slice(0, 90)}{q.question.length > 90 ? "…" : ""}
                           </span>
                           <Badge
                             variant="outline"
-                            className="text-[9px] shrink-0 border-stone-300 text-stone-500"
+                            className="text-[9px] shrink-0 border-border text-muted-foreground"
                           >
                             {q.type === "numerical" ? "NUM" : "MCQ"}
                           </Badge>
@@ -482,7 +482,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
                       );
                     })}
                     {orderedIds.length > 10 ? (
-                      <li className="text-[11px] text-stone-400 pl-9">
+                      <li className="text-[11px] text-muted-foreground/70 pl-9">
                         …and {orderedIds.length - 10} more
                       </li>
                     ) : null}
@@ -493,14 +493,14 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
 
             <div className="flex gap-2 mt-4">
               <Button
-                className="flex-1 bg-emerald-700 hover:bg-emerald-800 min-h-[44px]"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px]"
                 onClick={buildSession}
               >
                 Start test
               </Button>
             </div>
             <button
-              className="text-xs text-stone-400 underline mt-3"
+              className="text-xs text-muted-foreground/70 underline mt-3"
               onClick={() => setPickMode(pickMode === "chapters" ? "manual" : "chapters")}
             >
               switch to {pickMode === "chapters" ? "picking individual questions" : "picking chapters"}
@@ -508,7 +508,7 @@ export function TestCreateView({ nav, prefill }: { nav: NavController; prefill?:
           </SectionCard>
 
           <SectionCard title="Before you hit start">
-            <ul className="text-xs text-stone-500 space-y-2 list-disc pl-4">
+            <ul className="text-xs text-muted-foreground space-y-2 list-disc pl-4">
               <li>Full-mock template wants 20 MCQ + 5 numerical per subject — the player uses whatever the bank has.</li>
               <li>Chapter tests: keep it tight. 1 min/question is the default suggestion.</li>
               <li>Shuffle mixes questions inside each subject only — sections stay P → C → M.</li>

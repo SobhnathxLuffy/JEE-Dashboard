@@ -22,7 +22,8 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { AnswerBits, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
+import { AnswerBits, EmptyNote, PageTitle, SectionCard, StatCard } from "./shared";
+import { CountUp, ScoreRing, Stagger, StaggerItem } from "./motion";
 import { useLive, put, get, getAll } from "@/lib/idb";
 import { marksFor } from "@/lib/scoring";
 import { fileToDataUrl } from "@/lib/image";
@@ -47,12 +48,12 @@ import {
 } from "@/lib/types";
 
 const TAG_CLS: Record<ErrorTag, string> = {
-  C: "bg-red-100 text-red-700 border-red-200",
-  F: "bg-amber-100 text-amber-800 border-amber-300",
-  A: "bg-orange-100 text-orange-700 border-orange-200",
-  R: "bg-sky-100 text-sky-700 border-sky-200",
-  T: "bg-violet-100 text-violet-700 border-violet-200",
-  G: "bg-stone-200 text-stone-700 border-stone-300",
+  C: "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
+  F: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
+  A: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
+  R: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
+  T: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
+  G: "bg-stone-200 text-stone-700 border-stone-300 dark:bg-stone-500/15 dark:text-stone-300 dark:border-stone-500/30",
 };
 
 const LK_MAX_CELLS = 300; // grid render cap inside the late-key dialog
@@ -434,42 +435,109 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatCard
-          label="Score"
-          value={test.score === null ? "pending" : `${test.score}/${test.max_score}`}
-          tone={(test.score ?? 0) >= test.max_score * 0.5 ? "good" : "warn"}
-          hint={
-            selfMark && stats.pending > 0
-              ? `${stats.pending} mark${stats.pending > 1 ? "s" : ""} pending`
-              : undefined
-          }
-        />
-        <StatCard label="Accuracy" value={`${stats.accuracy}%`} hint={`${stats.correct}/${stats.attempted}`} />
-        <StatCard label="Attempt rate" value={`${stats.attemptRate}%`} hint={`${stats.attempted}/${rows.length}`} />
-        <StatCard
-          label="Negatives"
-          value={`−${stats.wrong}`}
-          tone={stats.wrong > 5 ? "bad" : "default"}
-          hint={`score would be ${(test.score ?? 0) + stats.wrong} with guesses skipped`}
-        />
-        <StatCard label="Time used" value={fmtSecs(stats.time)} />
+      {/* score hero — ring draws in, number settles, subject split at a glance */}
+      <div className="rounded-xl border border-border bg-card card-shadow px-5 py-4 flex items-center gap-6 flex-wrap">
+        {test.score === null ? (
+          <div className="flex items-center gap-3 text-sm text-amber-700 dark:text-amber-300 py-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
+            Score pending — add the answer key or finish self-marking below.
+          </div>
+        ) : (
+          <>
+            <ScoreRing percent={(test.score / Math.max(1, test.max_score)) * 100} size={92}>
+              <div className="text-center leading-none">
+                <div className="font-mono tabular-nums text-xl font-bold text-foreground">
+                  <CountUp value={test.score} />
+                </div>
+                <div className="text-[10px] font-mono text-muted-foreground mt-0.5">/{test.max_score}</div>
+              </div>
+            </ScoreRing>
+            <div className="flex flex-wrap items-center gap-x-7 gap-y-3 min-w-0">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Accuracy</div>
+                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">
+                  <CountUp value={stats.accuracy} format={(v) => `${Math.round(v)}%`} />
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Attempted</div>
+                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">
+                  {stats.attempted}
+                  <span className="text-muted-foreground/60 text-sm">/{rows.length}</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">Time</div>
+                <div className="font-mono tabular-nums text-lg font-semibold text-foreground">{fmtSecs(stats.time)}</div>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {SUBJECTS.map((s) => (
+                  <div key={s} className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "inline-block w-2 h-2 rounded-full",
+                        s === "Physics" ? "bg-amber-500" : s === "Chemistry" ? "bg-emerald-600 dark:bg-emerald-400" : "bg-stone-800 dark:bg-stone-300"
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="text-[11px] text-muted-foreground">{SUBJECT_SHORT[s]}</span>
+                    <span className="font-mono tabular-nums text-sm font-semibold text-foreground">
+                      {test.subject_scores[s] ?? 0}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
+
+      <Stagger className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StaggerItem>
+          <StatCard
+            label="Score"
+            value={test.score === null ? "pending" : `${test.score}/${test.max_score}`}
+            tone={(test.score ?? 0) >= test.max_score * 0.5 ? "good" : "warn"}
+            hint={
+              selfMark && stats.pending > 0
+                ? `${stats.pending} mark${stats.pending > 1 ? "s" : ""} pending`
+                : undefined
+            }
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Accuracy" value={`${stats.accuracy}%`} hint={`${stats.correct}/${stats.attempted}`} />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Attempt rate" value={`${stats.attemptRate}%`} hint={`${stats.attempted}/${rows.length}`} />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label="Negatives"
+            value={`−${stats.wrong}`}
+            tone={stats.wrong > 5 ? "bad" : "default"}
+            hint={`score would be ${(test.score ?? 0) + stats.wrong} with guesses skipped`}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Time used" value={fmtSecs(stats.time)} />
+        </StaggerItem>
+      </Stagger>
 
       {/* D4: self-mark banner (key-later tests) */}
       {selfMark ? (
         stats.pending > 0 || test.score === null ? (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
+          <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3 flex-wrap">
             <span>
               <strong>Self-mark mode</strong> — mark each attempted question below. The score
               recomputes as you go.
             </span>
-            <Badge variant="outline" className="border-amber-400 text-amber-800 whitespace-nowrap">
+            <Badge variant="outline" className="border-amber-400 dark:border-amber-500/50 text-amber-800 dark:text-amber-300 whitespace-nowrap">
               pending marks: {markedCount}/{stats.attempted}
             </Badge>
           </div>
         ) : (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-800">
+          <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/25 rounded-lg px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300">
             <strong>Self-mark complete</strong> — score {test.score}/{test.max_score}. Toggles
             stay live if a mark needs correcting.
           </div>
@@ -478,25 +546,25 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
 
       {/* D1: retry-wrong as a fresh CBT session */}
       {test.question_ids ? (
-        <div className="bg-white border border-stone-200 rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className="bg-card border border-border card-shadow rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
           <Button
             onClick={startRetry}
             disabled={retryIds.length === 0}
-            className="bg-emerald-700 hover:bg-emerald-800 min-h-[44px] px-5 font-semibold"
+            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px] px-5 font-semibold"
           >
             ↻ Retry wrong ({retryIds.length})
           </Button>
-          <p className="text-xs text-stone-500 min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground min-w-0 flex-1">
             Wrong + skipped-but-keyed questions, test order, 1 min each. The fastest way to prove
             the fix stuck.
           </p>
         </div>
       ) : test.pdf_meta ? (
-        <div className="bg-white border border-stone-200 rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className="bg-card border border-border card-shadow rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
           <Button disabled className="min-h-[44px] px-5">
             ↻ Retry wrong
           </Button>
-          <p className="text-xs text-stone-400">
+          <p className="text-xs text-muted-foreground/70">
             PDF test — re-upload the PDF to retry this set.
           </p>
         </div>
@@ -508,8 +576,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           className={cn(
             "rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap border",
             test.pdf_meta.key_later || test.pdf_meta.key.length === 0
-              ? "bg-amber-50 border-amber-200"
-              : "bg-white border-stone-200"
+              ? "bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25"
+              : "bg-card border-border card-shadow"
           )}
         >
           <Button
@@ -517,7 +585,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             className={cn(
               "min-h-[44px] px-5 font-semibold",
               test.pdf_meta.key_later || test.pdf_meta.key.length === 0
-                ? "bg-emerald-700 hover:bg-emerald-800"
+                ? "bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
                 : ""
             )}
             variant={
@@ -534,8 +602,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             className={cn(
               "text-xs min-w-0 flex-1",
               test.pdf_meta.key_later || test.pdf_meta.key.length === 0
-                ? "text-amber-800"
-                : "text-stone-500"
+                ? "text-amber-800 dark:text-amber-300"
+                : "text-muted-foreground"
             )}
           >
             {test.pdf_meta.key_later || test.pdf_meta.key.length === 0
@@ -546,7 +614,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
       ) : null}
 
       {stats.untagged > 0 ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 flex items-center justify-between gap-3 flex-wrap">
+        <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3 flex-wrap">
           <span>
             <strong>{stats.untagged} wrong answers</strong> still untagged. Tag them now — the
             dashboard&apos;s error-tag chart and formula sheet only work if every mistake is
@@ -556,7 +624,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             <Button
               size="sm"
               variant="outline"
-              className="border-amber-400 text-amber-800 hover:bg-amber-100"
+              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-500/10"
               onClick={jumpToNextUntagged}
             >
               ↦ Next untagged ({untaggedIds.length})
@@ -564,7 +632,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             <Button
               size="sm"
               variant="outline"
-              className="border-amber-400 text-amber-800 hover:bg-amber-100"
+              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-500/10"
               onClick={() => setFilter("untagged")}
             >
               Show untagged
@@ -584,10 +652,10 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                   key={f}
                   onClick={() => setFilter(f)}
                   className={cn(
-                    "px-2.5 py-1 rounded-full text-xs transition-colors",
+                    "press px-2.5 py-1 rounded-full text-xs transition-colors",
                     filter === f
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
                   {f}
@@ -601,10 +669,10 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                   onClick={() => setSubjectFilter(s)}
                   aria-pressed={subjectFilter === s}
                   className={cn(
-                    "px-2.5 py-1 rounded-full text-xs transition-colors min-h-[28px]",
+                    "press px-2.5 py-1 rounded-full text-xs transition-colors min-h-[28px]",
                     subjectFilter === s
-                      ? "bg-emerald-700 text-white font-medium"
-                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                      ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 font-medium"
+                      : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
                   {s === "all" ? "All" : SUBJECT_SHORT[s]}
@@ -638,33 +706,33 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                     // alignment + color carry the state, not badges alone)
                     "rounded-lg p-3 transition-shadow border border-l-4",
                     highlightId === r.id
-                      ? "border-amber-400 border-l-amber-500 bg-amber-50 ring-2 ring-amber-300"
+                      ? "border-amber-400 border-l-amber-500 bg-amber-50 ring-2 ring-amber-300 dark:bg-amber-500/10 dark:ring-amber-500/40"
                       : !r.attempted
-                        ? "border-border border-l-stone-300 bg-stone-50/60"
+                        ? "border-border border-l-stone-300 dark:border-l-stone-600 bg-stone-50/60 dark:bg-stone-500/5"
                         : r.correct === true
-                          ? "border-emerald-100 border-l-emerald-600 bg-emerald-50/50"
+                          ? "border-emerald-100 border-l-emerald-600 bg-emerald-50/50 dark:border-emerald-500/20 dark:border-l-emerald-500 dark:bg-emerald-500/5"
                           : r.correct === false
-                            ? "border-red-100 border-l-red-500 bg-red-50/40"
-                            : "border-amber-100 border-l-amber-500 bg-amber-50/40" // pending self-mark
+                            ? "border-red-100 border-l-red-500 bg-red-50/40 dark:border-red-500/20 dark:border-l-red-500 dark:bg-red-500/5"
+                            : "border-amber-100 border-l-amber-500 bg-amber-50/40 dark:border-amber-500/20 dark:border-l-amber-500 dark:bg-amber-500/5" // pending self-mark
                   )}
                 >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="text-xs font-bold text-stone-500">
+                        <span className="text-xs font-bold text-muted-foreground">
                           Q{qNo}
                         </span>
-                        <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                           {r.type === "numerical" ? "NUM" : "MCQ"}
                         </Badge>
-                        <span className="text-[11px] text-stone-400">{r.chapter}</span>
-                        <span className="text-[11px] text-stone-400">{fmtSecs(r.time_spent)}</span>
+                        <span className="text-[11px] text-muted-foreground/70">{r.chapter}</span>
+                        <span className="text-[11px] text-muted-foreground/70">{fmtSecs(r.time_spent)}</span>
                         {!r.attempted ? (
-                          <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-400">
+                          <Badge variant="outline" className="text-[10px] border-border text-muted-foreground/70">
                             unattempted
                           </Badge>
                         ) : r.correct === true ? (
-                          <Badge className="text-[10px] bg-emerald-600 hover:bg-emerald-600 text-white border-0">
+                          <Badge className="text-[10px] bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-600 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">
                             +4
                           </Badge>
                         ) : r.correct === false ? (
@@ -677,7 +745,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-stone-800">{r.question_snippet}</p>
+                      <p className="text-sm text-foreground">{r.question_snippet}</p>
                       <div className="mt-1.5">
                         <AnswerBits
                           selected={r.selected}
@@ -695,7 +763,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                       <Input
                         defaultValue={r.note ?? ""}
                         placeholder="Add a one-line note — the actual insight (optional)"
-                        className="mt-2 h-8 text-xs bg-white"
+                        className="mt-2 h-8 text-xs bg-transparent"
                         maxLength={280}
                         aria-label={`Note for Q${qNo}`}
                         onBlur={(e) => void saveNote(r, e.target.value)}
@@ -709,7 +777,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                         <button
                           type="button"
                           onClick={() => setViewPhoto({ url: r.photo!, title: `Q${qNo} · ${r.chapter}`, id: r.id })}
-                          className="mt-2 block rounded-md overflow-hidden border border-stone-300 hover:border-emerald-500 transition-colors"
+                          className="mt-2 block rounded-md overflow-hidden border border-border hover:border-emerald-500 dark:hover:border-emerald-400 transition-colors"
                           aria-label={`View solution photo for Q${qNo}`}
                         >
                           <img
@@ -734,16 +802,16 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                     {/* D4: self-mark toggles (key-later tests only) */}
                     {selfMark ? (
                       <div className="flex flex-col gap-1 items-end shrink-0">
-                        <span className="text-[10px] uppercase text-stone-400 font-medium">mark it</span>
+                        <span className="text-[10px] uppercase text-muted-foreground/70 font-medium">mark it</span>
                         <div className="flex gap-1.5">
                           <button
                             type="button"
                             onClick={() => void applyMark(r, r.correct === true ? null : true)}
                             className={cn(
-                              "px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
+                              "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
                               r.correct === true
-                                ? "bg-emerald-700 text-white border-emerald-700"
-                                : "bg-white border-stone-300 text-stone-600 hover:border-emerald-500"
+                                ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
+                                : "bg-card border-border text-muted-foreground hover:border-emerald-500 dark:hover:border-emerald-400 hover:text-foreground"
                             )}
                           >
                             ✓ Correct
@@ -752,10 +820,10 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                             type="button"
                             onClick={() => void applyMark(r, r.correct === false ? null : false)}
                             className={cn(
-                              "px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
+                              "press px-2.5 min-h-[36px] rounded-md border text-xs font-semibold transition-colors",
                               r.correct === false
                                 ? "bg-red-600 text-white border-red-600"
-                                : "bg-white border-stone-300 text-stone-600 hover:border-red-400"
+                                : "bg-card border-border text-muted-foreground hover:border-red-400 hover:text-foreground"
                             )}
                           >
                             ✗ Wrong
@@ -767,7 +835,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                     {/* tag UI: wrong-marked rows only (self-marked wrongs flow in here too) */}
                     {r.attempted && r.correct === false ? (
                       <div className="flex flex-col gap-1 items-end shrink-0">
-                        <span className="text-[10px] uppercase text-stone-400 font-medium">tag it</span>
+                        <span className="text-[10px] uppercase text-muted-foreground/70 font-medium">tag it</span>
                         <div className="flex gap-1">
                           {ERROR_TAGS.map((t) => (
                             <button
@@ -777,8 +845,8 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                               className={cn(
                                 "w-7 h-7 rounded-md border text-xs font-bold transition-colors",
                                 r.error_tag === t.code
-                                  ? TAG_CLS[t.code] + " ring-2 ring-offset-1 ring-stone-300"
-                                  : "bg-white border-stone-200 text-stone-400 hover:text-stone-700 hover:border-stone-400"
+                                  ? TAG_CLS[t.code] + " ring-2 ring-offset-1 ring-stone-300 dark:ring-stone-500 dark:ring-offset-stone-950"
+                                  : "bg-card border-border text-muted-foreground/60 hover:text-foreground hover:border-stone-400 dark:hover:border-stone-500"
                               )}
                             >
                               {t.code}
@@ -786,7 +854,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                           ))}
                         </div>
                         {r.error_tag ? (
-                          <span className="text-[10px] text-stone-400">
+                          <span className="text-[10px] text-muted-foreground/70">
                             {ERROR_TAGS.find((t) => t.code === r.error_tag)?.label}
                             {r.error_tag === "F" ? " → formula sheet ✓" : ""}
                           </span>
@@ -814,7 +882,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             <img
               src={viewPhoto.url}
               alt={`Solution photo, ${viewPhoto.title}`}
-              className="w-full h-auto max-h-[65vh] object-contain rounded-md border border-stone-200 bg-white"
+              className="w-full h-auto max-h-[65vh] object-contain rounded-md border border-border bg-white"
             />
           ) : null}
           <DialogFooter className="gap-2 sm:gap-0">
@@ -831,7 +899,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             <Button
               variant="ghost"
               size="sm"
-              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
               onClick={() => viewPhoto && void removePhoto(viewPhoto.id)}
             >
               Remove
@@ -907,7 +975,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
           {lkRenderCells.length > 0 ? (
             <>
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge className="bg-emerald-700 hover:bg-emerald-700 text-white border-0">
+                <Badge className="bg-emerald-700 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">
                   {lkGridKey.length} key{lkGridKey.length === 1 ? "" : "s"} in grid
                 </Badge>
                 {lkMissing.length === 0 ? (
@@ -936,7 +1004,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
                       <div
                         className={cn(
                           "text-[10px] leading-none",
-                          invalid ? "text-red-500 font-semibold" : "text-stone-400"
+                          invalid ? "text-red-500 font-semibold" : "text-muted-foreground/70"
                         )}
                       >
                         Q{no}
@@ -969,7 +1037,7 @@ export function ResultsView({ testId, nav }: { testId: string; nav: NavControlle
             </Button>
             <Button
               size="sm"
-              className="bg-emerald-700 hover:bg-emerald-800"
+              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
               disabled={lkBusy || lkGridKey.length === 0}
               onClick={() => void applyLkKey()}
             >

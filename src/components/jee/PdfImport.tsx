@@ -455,12 +455,12 @@ export function PdfImportView({
               className={cn(
                 "w-full border-2 border-dashed rounded-xl px-6 py-10 text-center transition-all",
                 dragOver
-                  ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/30"
-                  : "border-stone-300 hover:border-emerald-500 hover:bg-emerald-50/40"
+                  ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 ring-2 ring-emerald-500/30"
+                  : "border-border hover:border-emerald-500 dark:hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
               )}
               aria-label="Upload PDF: drag a file here or click to browse"
             >
-              <div className="text-sm font-medium text-stone-700">
+              <div className="text-sm font-medium text-foreground/80">
                 {loading
                   ? "Reading PDF…"
                   : fileName
@@ -470,21 +470,21 @@ export function PdfImportView({
                       : "Drag the PDF here, or click to browse"}
               </div>
               {numPages > 0 ? (
-                <div className="text-xs text-stone-400 mt-1">
+                <div className="text-xs text-muted-foreground/70 mt-1">
                   {numPages} pages detected
                   {initialPaper ? " · loaded from Papers library" : " · saved to Papers library"}
                 </div>
               ) : (
-                <div className="text-xs text-stone-400 mt-1">
+                <div className="text-xs text-muted-foreground/70 mt-1">
                   rendered locally with pdf.js — no upload
                 </div>
               )}
             </button>
-            <p className="text-[11px] text-stone-400 mt-2">
+            <p className="text-[11px] text-muted-foreground/70 mt-2">
               Already uploaded this paper?{" "}
               <button
                 type="button"
-                className="underline text-emerald-700 hover:text-emerald-800"
+                className="underline text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:text-emerald-300"
                 onClick={() => nav.go("papers")}
               >
                 Pick it from the Papers library
@@ -561,18 +561,18 @@ export function PdfImportView({
                       inputMode="numeric"
                       aria-label="First question number"
                     />
-                    <p className="text-[11px] text-stone-400">sheet says Q21? put 21 — the palette mirrors the paper</p>
+                    <p className="text-[11px] text-muted-foreground/70">sheet says Q21? put 21 — the palette mirrors the paper</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Total questions</Label>
                     <Input value={totalQ} onChange={(e) => setTotalQ(e.target.value)} inputMode="numeric" />
-                    <p className="text-[11px] text-stone-400">your PDF decides</p>
+                    <p className="text-[11px] text-muted-foreground/70">your PDF decides</p>
                   </div>
                 </div>
               </>
             ) : (
               <div className="space-y-3">
-                <p className="text-[11px] text-stone-400">
+                <p className="text-[11px] text-muted-foreground/70">
                   Question numbers are the paper&apos;s own numbering. 2025 pattern preset: 25 Qs per subject — edit freely.
                 </p>
                 {SUBJECTS.map((s) => {
@@ -580,9 +580,9 @@ export function PdfImportView({
                   const set = (patch: Partial<SectionRowState>) =>
                     setRows((prev) => ({ ...prev, [s]: { ...prev[s], ...patch } }));
                   return (
-                    <div key={s} className="border border-stone-200 rounded-lg p-3 space-y-2 bg-stone-50/50">
+                    <div key={s} className="border border-border rounded-lg p-3 space-y-2 bg-muted/40">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-stone-700">{s}</span>
+                        <span className="text-xs font-bold text-foreground/80">{s}</span>
                         <Select
                           value={r.chapter === "" ? "generic" : r.chapter}
                           onValueChange={(v) => set({ chapter: v === "generic" ? "" : v })}
@@ -600,19 +600,19 @@ export function PdfImportView({
                       </div>
                       <div className="grid grid-cols-4 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-stone-400">First Q</Label>
+                          <Label className="text-[10px] text-muted-foreground/70">First Q</Label>
                           <Input className="h-8 text-sm" value={r.first_q} onChange={(e) => set({ first_q: e.target.value })} inputMode="numeric" aria-label={`${s} first question`} />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-stone-400">Last Q</Label>
+                          <Label className="text-[10px] text-muted-foreground/70">Last Q</Label>
                           <Input className="h-8 text-sm" value={r.last_q} onChange={(e) => set({ last_q: e.target.value })} inputMode="numeric" aria-label={`${s} last question`} />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-stone-400">Start p.</Label>
+                          <Label className="text-[10px] text-muted-foreground/70">Start p.</Label>
                           <Input className="h-8 text-sm" value={r.start_page} onChange={(e) => set({ start_page: e.target.value })} inputMode="numeric" aria-label={`${s} start page`} />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-stone-400">End p.</Label>
+                          <Label className="text-[10px] text-muted-foreground/70">End p.</Label>
                           <Input className="h-8 text-sm" value={r.end_page} onChange={(e) => set({ end_page: e.target.value })} inputMode="numeric" aria-label={`${s} end page`} />
                         </div>
                       </div>
@@ -636,10 +636,10 @@ export function PdfImportView({
                       className={cn(
                         "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
                         active
-                          ? "bg-emerald-700 text-white border-emerald-700"
+                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
                           : hot
-                            ? "border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
-                            : "border-stone-300 text-stone-600 hover:bg-stone-100"
+                            ? "border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100"
+                            : "border-border text-muted-foreground hover:bg-accent"
                       )}
                       aria-pressed={active}
                       aria-label={`Set duration to ${p} minutes`}
@@ -664,7 +664,7 @@ export function PdfImportView({
             title="3 · Answer key"
             subtitle="paste, upload a digital key PDF, or type into the grid — grid edits always win"
           >
-            <div className="flex items-center gap-2 mb-3 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 mb-3 bg-muted border border-border rounded-lg px-3 py-2">
               <Switch
                 id="key-later"
                 checked={keyLater}
@@ -720,12 +720,12 @@ export function PdfImportView({
                 </Label>
               </div>
             </div>
-            <p className="text-[11px] text-stone-400 mt-1.5">
+            <p className="text-[11px] text-muted-foreground/70 mt-1.5">
               Option-number mapping turns key values 1–4 into A–D, live. Turn it off if numerical answers can legitimately be 1–4.
             </p>
 
             {optNumSuggest && !optHintDismissed ? (
-              <div className="mt-2 flex items-center justify-between gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-800">
+              <div className="mt-2 flex items-center justify-between gap-2 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40 rounded-lg px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                 <span>
                   {parsedKey.filter((k) => ["1", "2", "3", "4"].includes(k.answer)).length} of your key values
                   look like option numbers (1)–(4) — turn on the mapping above?
@@ -733,7 +733,7 @@ export function PdfImportView({
                 <button
                   type="button"
                   onClick={() => setOptHintDismissed(true)}
-                  className="text-amber-700 hover:text-amber-900 font-medium shrink-0"
+                  className="text-amber-700 dark:text-amber-300 hover:text-amber-900 font-medium shrink-0"
                   aria-label="Dismiss suggestion"
                 >
                   Dismiss
@@ -750,10 +750,10 @@ export function PdfImportView({
                   inputMode="decimal"
                   aria-label="Numerical tolerance"
                 />
-                <p className="text-[11px] text-stone-400">0 = exact match; answers within ±tolerance score +4</p>
+                <p className="text-[11px] text-muted-foreground/70">0 = exact match; answers within ±tolerance score +4</p>
               </div>
               <div className="flex items-end">
-                <Button type="button" variant="ghost" size="sm" className="text-red-500 hover:text-red-600 hover:bg-red-50" onClick={clearGrid}>
+                <Button type="button" variant="ghost" size="sm" className="text-red-500 dark:text-red-400 hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10" onClick={clearGrid}>
                   Clear grid
                 </Button>
               </div>
@@ -762,28 +762,28 @@ export function PdfImportView({
             {/* editable key grid — authoritative key */}
             <div className={keyLater ? "mt-4 pointer-events-none opacity-50" : "mt-4"}>
               <div className="flex items-center gap-2 flex-wrap mb-2">
-                <Badge className="bg-emerald-700 hover:bg-emerald-700 text-white border-0">
+                <Badge className="bg-emerald-700 dark:bg-emerald-500 hover:bg-emerald-700 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">
                   {gridKey.length} key{gridKey.length === 1 ? "" : "s"} in grid
                 </Badge>
                 {parsedKey.length > 0 ? (
-                  <Badge variant="outline" className="border-stone-300 text-stone-500">
+                  <Badge variant="outline" className="border-border text-muted-foreground">
                     {parsedKey.length} parsed from text
                   </Badge>
                 ) : null}
                 {paperTotal > 0 ? (
                   coverage.missing.length === 0 ? (
-                    <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                    <Badge variant="outline" className="border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
                       full coverage of Q{firstQN}–{firstQN + paperTotal - 1}
                     </Badge>
                   ) : (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700">
+                    <Badge variant="outline" className="border-amber-400 dark:border-amber-500/50 text-amber-700 dark:text-amber-300">
                       missing: {coverage.missing.slice(0, 10).join(", ")}
                       {coverage.missing.length > 10 ? ` +${coverage.missing.length - 10}` : ""}
                     </Badge>
                   )
                 ) : null}
                 {paperTotal > MAX_GRID_CELLS ? (
-                  <Badge variant="outline" className="border-amber-400 text-amber-700">
+                  <Badge variant="outline" className="border-amber-400 dark:border-amber-500/50 text-amber-700 dark:text-amber-300">
                     showing first {MAX_GRID_CELLS} cells
                   </Badge>
                 ) : null}
@@ -802,7 +802,7 @@ export function PdfImportView({
                     const invalid = res !== null && res.kind === "invalid";
                     return (
                       <div key={no} className="space-y-0.5">
-                        <div className={cn("text-[10px] leading-none", invalid ? "text-red-500 font-semibold" : "text-stone-400")}>
+                        <div className={cn("text-[10px] leading-none", invalid ? "text-red-500 dark:text-red-400 font-semibold" : "text-muted-foreground/70")}>
                           Q{no}
                         </div>
                         <Input
@@ -824,11 +824,11 @@ export function PdfImportView({
           </SectionCard>
 
           <SectionCard title="4 · Start" subtitle="pages render inside the player next to the palette">
-            <ul className="text-xs text-stone-500 space-y-1.5 list-disc pl-4 mb-4">
+            <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4 mb-4">
               <li>The player shows the page holding the current question and follows you as you move.</li>
               <li>Answer A–D or type numbers, exactly like the key — multi-answer keys (“B/C”) accept either.</li>
               {keyLater ? (
-                <li className="text-amber-700 font-medium">
+                <li className="text-amber-700 dark:text-amber-300 font-medium">
                   Score later is ON — you’ll self-mark each attempted question in Results; score and analytics fill in as you mark.
                 </li>
               ) : (
@@ -836,7 +836,7 @@ export function PdfImportView({
               )}
             </ul>
             <Button
-              className="w-full bg-emerald-700 hover:bg-emerald-800"
+              className="w-full bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
               disabled={!blob || (!keyLater && gridKey.length === 0) || loading}
               onClick={() => void startTest()}
             >

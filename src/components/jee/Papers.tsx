@@ -52,7 +52,7 @@ function EmptyNoteFallback({ query, onClear }: { query: string; onClear: () => v
       No papers match “{query}”.{" "}
       <button
         onClick={onClear}
-        className="text-emerald-700 font-medium underline underline-offset-2 hover:text-emerald-800"
+        className="text-emerald-700 dark:text-emerald-400 font-medium underline underline-offset-2 hover:text-emerald-800 dark:text-emerald-300"
       >
         Clear search
       </button>
@@ -149,7 +149,7 @@ export function PapersView({ nav }: { nav: NavController }) {
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search
-                className="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                className="w-3.5 h-3.5 text-muted-foreground/70 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                 aria-hidden="true"
               />
               <Input
@@ -183,9 +183,9 @@ export function PapersView({ nav }: { nav: NavController }) {
               {rows.map((p) => (
                 <li
                   key={p.id}
-                  className="group flex items-center gap-3 px-3 py-2.5 hover:bg-stone-50 transition-colors"
+                  className="group flex items-center gap-3 px-3 py-2.5 hover:bg-accent/50 transition-colors"
                 >
-                  <div className="w-9 h-9 rounded-md bg-stone-100 text-stone-400 grid place-items-center shrink-0">
+                  <div className="w-9 h-9 rounded-md bg-muted text-muted-foreground/70 grid place-items-center shrink-0">
                     <FileText className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -204,7 +204,7 @@ export function PapersView({ nav }: { nav: NavController }) {
                     <Button
                       size="sm"
                       onClick={() => importPaper(p)}
-                      className="bg-emerald-700 hover:bg-emerald-800 press h-8"
+                      className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 press h-8"
                     >
                       Import test
                     </Button>
@@ -232,7 +232,7 @@ export function PapersView({ nav }: { nav: NavController }) {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10"
                       onClick={() => setDeleteTarget(p)}
                       aria-label={`Delete ${p.name}`}
                     >
@@ -278,7 +278,7 @@ export function PapersView({ nav }: { nav: NavController }) {
             </Button>
             <Button
               size="sm"
-              className="bg-emerald-700 hover:bg-emerald-800"
+              className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
               onClick={() => void saveRename()}
               disabled={!renameDraft.trim()}
             >

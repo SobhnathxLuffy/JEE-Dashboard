@@ -219,7 +219,7 @@ export function DataView() {
       <div className="grid md:grid-cols-2 gap-6">
         <SectionCard title="Backup & restore" subtitle="plain JSON — no cloud, no account">
           <div className="flex flex-col gap-3">
-            <div className="text-xs text-stone-500 grid grid-cols-3 gap-2">
+            <div className="text-xs text-muted-foreground grid grid-cols-3 gap-2">
               <span>questions: <strong>{questions.length}</strong></span>
               <span>tests: <strong>{tests.length}</strong></span>
               <span>responses: <strong>{responses.length}</strong></span>
@@ -228,10 +228,10 @@ export function DataView() {
               <span>daily logs: <strong>{daily.length}</strong></span>
               <span>papers: <strong>{papers.length}</strong></span>
             </div>
-            <Button onClick={exportAll} className="bg-emerald-700 hover:bg-emerald-800">
+            <Button onClick={exportAll} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
               Export JSON backup
             </Button>
-            <p className="text-[11px] text-stone-400">
+            <p className="text-[11px] text-muted-foreground/70">
               Papers-library PDFs are embedded in the backup as base64 (up to 60 MB total). The
               transient in-test PDF blob is still excluded — re-attach a PDF only if a test was
               running when you backed up.

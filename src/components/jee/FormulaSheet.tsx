@@ -115,14 +115,14 @@ export function FormulaView({ nav }: { nav: NavController }) {
           Open test
         </Button>
       ) : (
-        <Badge variant="outline" className="text-[10px] border-stone-200 text-stone-400">
+        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground/70">
           manual
         </Badge>
       )}
       <Button
         size="sm"
         variant={dimmed ? "outline" : "ghost"}
-        className={cn("h-8 text-xs", !dimmed && "text-emerald-700 hover:bg-emerald-50")}
+        className={cn("h-8 text-xs", !dimmed && "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/10")}
         onClick={() => void toggleLearned(e)}
       >
         {dimmed ? "Unmark" : "✓ Learned"}
@@ -130,7 +130,7 @@ export function FormulaView({ nav }: { nav: NavController }) {
       <Button
         size="sm"
         variant="ghost"
-        className="h-8 text-xs text-red-500 hover:text-red-600 hover:bg-red-50"
+        className="h-8 text-xs text-red-500 dark:text-red-400 hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10"
         onClick={() => {
           del("formula", e.id);
           toast.success("Removed from formula sheet");
@@ -154,7 +154,7 @@ export function FormulaView({ nav }: { nav: NavController }) {
                 onClick={() => setFilter(s)}
                 aria-pressed={filter === s}
                 className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
-                  filter === s ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                  filter === s ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-accent"
                 }`}
               >
                 {s === "all" ? "All" : s.slice(0, 1)}
@@ -211,7 +211,7 @@ export function FormulaView({ nav }: { nav: NavController }) {
               }}
             />
           </div>
-          <Button onClick={() => void addManual()} className="bg-emerald-700 hover:bg-emerald-800 min-h-[44px]">
+          <Button onClick={() => void addManual()} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 min-h-[44px]">
             Add
           </Button>
         </div>
@@ -224,12 +224,12 @@ export function FormulaView({ nav }: { nav: NavController }) {
         </EmptyNote>
       ) : (
         <div className="space-y-4">
-          <div className="text-sm text-stone-500 flex items-center gap-2 flex-wrap">
-            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+          <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" className="border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300">
               {active.length} to revise
             </Badge>
             {learned.length > 0 ? (
-              <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-800">
+              <Badge variant="outline" className="border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
                 {learned.length} learned
               </Badge>
             ) : null}
@@ -247,14 +247,14 @@ export function FormulaView({ nav }: { nav: NavController }) {
                     {list.map((e) => (
                       <li
                         key={e.id}
-                        className="border border-stone-200 rounded-lg px-3 py-2.5 flex items-start justify-between gap-3 hover:bg-stone-50 transition-colors"
+                        className="border border-border rounded-lg px-3 py-2.5 flex items-start justify-between gap-3 hover:bg-accent/50 transition-colors"
                       >
                         <div className="min-w-0">
-                          <div className="flex items-center text-[11px] text-stone-400 mb-0.5">
+                          <div className="flex items-center text-[11px] text-muted-foreground/70 mb-0.5">
                             <SubjectDot subject={subject} />
                             {subject}
                           </div>
-                          <p className="text-sm text-stone-800">{e.snippet}</p>
+                          <p className="text-sm text-foreground">{e.snippet}</p>
                         </div>
                         {rowActions(e, false)}
                       </li>
@@ -272,14 +272,14 @@ export function FormulaView({ nav }: { nav: NavController }) {
                 {learned.map((e) => (
                   <li
                     key={e.id}
-                    className="border border-stone-100 bg-stone-50 rounded-lg px-3 py-2.5 flex items-start justify-between gap-3 opacity-60 hover:opacity-90 transition-opacity"
+                    className="border border-border/60 bg-muted rounded-lg px-3 py-2.5 flex items-start justify-between gap-3 opacity-60 hover:opacity-90 transition-opacity"
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center text-[11px] text-stone-400 mb-0.5">
+                      <div className="flex items-center text-[11px] text-muted-foreground/70 mb-0.5">
                         <SubjectDot subject={e.subject} />
                         {e.subject} · {e.chapter}
                       </div>
-                      <p className="text-sm text-stone-600 line-through decoration-stone-300">
+                      <p className="text-sm text-muted-foreground line-through decoration-border">
                         {e.snippet}
                       </p>
                     </div>

@@ -158,16 +158,16 @@ export function SyllabusView() {
         subtitle="Tier-1 chapters deliver ~30% of each subject. Accuracy auto-colors chapters: ≥70% green (gate passed), 40–70% amber, <40% red. Deleted chapters are excluded entirely."
         right={
           <div className="flex gap-2 text-xs">
-            <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+            <Badge variant="outline" className="border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
               {counts.green} green
             </Badge>
-            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+            <Badge variant="outline" className="border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300">
               {counts.amber} amber
             </Badge>
-            <Badge variant="outline" className="border-red-200 bg-red-50 text-red-600">
+            <Badge variant="outline" className="border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 text-red-600">
               {counts.red} red
             </Badge>
-            <Badge variant="outline" className="border-stone-300 text-stone-600">
+            <Badge variant="outline" className="border-border text-muted-foreground">
               {counts.due} revision due
             </Badge>
           </div>
@@ -185,7 +185,7 @@ export function SyllabusView() {
                 onClick={() => setSort(m)}
                 className={cn(
                   "px-2.5 py-1 rounded-full text-xs transition-colors",
-                  sort === m ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                  sort === m ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-accent"
                 )}
               >
                 {m === "tier" ? "Tier-1 first" : m === "risk" ? "Weakest first" : m === "due" ? "Revision due" : "By subject"}
@@ -248,9 +248,9 @@ export function SyllabusView() {
             </div>
 
             {/* wide table stays for md+ */}
-            <div className="hidden md:block overflow-x-auto max-h-[620px] overflow-y-auto border border-stone-100 rounded-lg">
+            <div className="hidden md:block overflow-x-auto max-h-[620px] overflow-y-auto border border-border/60 rounded-lg">
               <table className="w-full text-sm min-w-[900px]">
-                <thead className="text-left text-xs text-stone-400 uppercase bg-stone-50 sticky top-0">
+                <thead className="text-left text-xs text-muted-foreground/70 uppercase bg-muted sticky top-0">
                   <tr>
                     <th className="py-2 px-3">Chapter</th>
                     <th className="py-2 px-3">Tier</th>
@@ -264,10 +264,10 @@ export function SyllabusView() {
                   {rows.map((r) => {
                     const h = health.get(`${r.subject}::${r.chapter}`);
                     return (
-                      <tr key={r.id} className="border-t border-stone-100 align-top hover:bg-stone-50/60">
+                      <tr key={r.id} className="border-t border-border/60 align-top hover:bg-accent/40">
                         <td className="py-2.5 px-3">
-                          <div className="font-medium text-stone-800">{r.chapter}</div>
-                          <div className="text-[11px] text-stone-400">{r.subject}</div>
+                          <div className="font-medium text-foreground">{r.chapter}</div>
+                          <div className="text-[11px] text-muted-foreground/70">{r.subject}</div>
                         </td>
                         <td className="py-2.5 px-3"><TierBadge tier={r.tier} /></td>
                         <td className="py-2.5 px-3">
@@ -275,7 +275,7 @@ export function SyllabusView() {
                             <HealthChip color={h?.color ?? "gray"} accuracy={h ? h.accuracy : null} />
                           </div>
                           {h ? (
-                            <div className="text-[10px] text-stone-400 mt-0.5">
+                            <div className="text-[10px] text-muted-foreground/70 mt-0.5">
                               {h.correct}/{h.attempted} attempted
                             </div>
                           ) : null}
@@ -314,7 +314,7 @@ export function SyllabusView() {
                             </div>
                           ) : (
                             <button
-                              className="text-left text-xs text-stone-400 hover:text-stone-700 max-w-56 truncate block"
+                              className="text-left text-xs text-muted-foreground/70 hover:text-foreground max-w-56 truncate block"
                               onClick={() => setNotesOpen(r.id)}
                             >
                               {r.notes || "+ add note"}
@@ -337,11 +337,11 @@ export function SyllabusView() {
 // ─── E4b: revision-due badge with overdue clarity ────────────────────────────
 function DueBadge({ next, today }: { next: string | null; today: string }) {
   if (!next) {
-    return <span className="text-[11px] text-stone-300">not started loop</span>;
+    return <span className="text-[11px] text-muted-foreground/50">not started loop</span>;
   }
   if (next === today) {
     return (
-      <Badge variant="outline" className="w-fit border-emerald-400 bg-emerald-50 text-emerald-700">
+      <Badge variant="outline" className="w-fit border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
         due tonight
       </Badge>
     );
@@ -349,13 +349,13 @@ function DueBadge({ next, today }: { next: string | null; today: string }) {
   if (next < today) {
     const n = diffDays(next, today);
     return (
-      <Badge variant="outline" className="w-fit border-red-300 bg-red-50 text-red-700">
+      <Badge variant="outline" className="w-fit border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300">
         DUE — {n} {n === 1 ? "day" : "days"} ago
       </Badge>
     );
   }
   return (
-    <Badge variant="outline" className="w-fit border-stone-200 text-stone-400">
+    <Badge variant="outline" className="w-fit border-border text-muted-foreground/70">
       in {diffDays(today, next)}d
     </Badge>
   );
@@ -377,7 +377,7 @@ function RevisionControls({
     <div className="flex flex-col gap-1.5">
       <DueBadge next={row.next_revision} today={today} />
       {row.next_revision ? (
-        <span className="text-[10px] text-stone-400">
+        <span className="text-[10px] text-muted-foreground/70">
           stage {row.revision_stage + 1}/4
           {row.last_revised ? ` · last ${row.last_revised}` : ""}
         </span>
@@ -462,7 +462,7 @@ function NotesEditor({
         aria-label="Chapter notes"
       />
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-stone-400">auto-saves as you type</span>
+        <span className="text-[10px] text-muted-foreground/70">auto-saves as you type</span>
         <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={onDone}>
           Done
         </Button>
@@ -494,14 +494,14 @@ function ChapterCard({
   onReschedule: (r: SyllabusRow, date: string) => void | Promise<void>;
 }) {
   return (
-    <div className="border border-stone-200 rounded-lg bg-white p-4 space-y-3">
+    <div className="border border-border rounded-lg bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-medium text-sm text-stone-800 flex items-center gap-1">
+          <div className="font-medium text-sm text-foreground flex items-center gap-1">
             <SubjectDot subject={row.subject} />
             <span className="truncate">{row.chapter}</span>
           </div>
-          <div className="text-[11px] text-stone-400 mt-0.5">
+          <div className="text-[11px] text-muted-foreground/70 mt-0.5">
             {row.subject}
             {health ? ` · ${health.correct}/${health.attempted} attempted` : ""}
           </div>
@@ -528,7 +528,7 @@ function ChapterCard({
 
       <RevisionControls row={row} today={today} onMarkRevised={onMarkRevised} onReschedule={onReschedule} />
 
-      <div className="border-t border-stone-100 pt-2">
+      <div className="border-t border-border/60 pt-2">
         {notesOpen ? (
           <NotesEditor
             initial={row.notes}
@@ -537,7 +537,7 @@ function ChapterCard({
           />
         ) : (
           <button
-            className="text-left text-xs text-stone-400 hover:text-stone-700 w-full truncate"
+            className="text-left text-xs text-muted-foreground/70 hover:text-foreground w-full truncate"
             onClick={onOpenNotes}
           >
             {row.notes || "+ add note"}

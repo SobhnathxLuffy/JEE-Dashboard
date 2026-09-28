@@ -1,15 +1,15 @@
 "use client";
 
 // ─── Dashboard: north-star, Today card, Amber queue, all five mock metrics ──
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
   Legend,
-  Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -23,7 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
+import { ChartNote, ChartTip, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO } from "./shared";
+import { CountUp, Stagger, StaggerItem } from "./motion";
 import { get, kvGet, kvSet, put, useLive } from "@/lib/idb";
 import {
   amberQueue,
@@ -39,9 +40,8 @@ import {
 } from "@/lib/analytics";
 import { addDays, fmtSecs, todayStr, type DailyLog } from "@/lib/types";
 
-// CH, GRID, TICK, TICK_MONO and the shared tooltip (TIP) come from shared.tsx —
+// CH, GRID, TICK, TICK_MONO and the shared ChartTip come from shared.tsx —
 // one chart vocabulary across Dashboard and Performance.
-const chartTooltip = TIP;
 
 /** E2: consecutive days where all four blocks are true — ends today if today is
  *  complete, otherwise yesterday (today still in progress never breaks it). */
@@ -68,9 +68,9 @@ function TagPctTooltip({
   if (!active || !payload || payload.length === 0 || !payload[0]?.payload) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
-      <div className="font-medium text-stone-800">{d.tag}</div>
-      <div className="text-stone-500 tabular-nums">
+    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-2.5 py-1.5 text-xs shadow-[0_8px_24px_-12px_rgba(28,25,23,0.25)]">
+      <div className="font-medium text-foreground">{d.tag}</div>
+      <div className="text-muted-foreground tabular-nums">
         {d.count} wrong · {d.pct}% of tagged
       </div>
     </div>
@@ -179,6 +179,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
 
   // E3a: raw / % toggle for the score timeline (component state only, default raw)
   const [timelineMode, setTimelineMode] = useState<"raw" | "pct">("raw");
+  const gradientId = useId();
   const timelineData = useMemo(
     () =>
       timeline.map((d) => ({
@@ -205,7 +206,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
           <Button
             size="sm"
             onClick={() => nav.go("test")}
-            className="bg-emerald-700 hover:bg-emerald-800"
+            className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
           >
             + New CBT
           </Button>
@@ -214,10 +215,10 @@ export function DashboardView({ nav }: { nav: NavController }) {
 
       {/* F3: first-run onboarding — 3 terse steps, dismissible */}
       {onboarded === false ? (
-        <div className="border border-emerald-200 bg-emerald-50/70 rounded-lg px-4 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="border border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10 rounded-lg px-4 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-stone-900 mb-1">First 3 moves</div>
-            <ol className="list-decimal ml-4 text-sm text-stone-600 space-y-0.5">
+            <div className="text-sm font-semibold text-foreground mb-1">First 3 moves</div>
+            <ol className="list-decimal ml-4 text-sm text-muted-foreground space-y-0.5">
               <li>Load demo questions (Data tab) or your own.</li>
               <li>Take a PDF test — a demo paper ships with the app (/demo-paper.pdf).</li>
               <li>Tag every mistake — that&apos;s where marks come back.</li>
@@ -227,7 +228,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
             <Button
               size="sm"
               variant="outline"
-              className="h-8 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+              className="h-8 border-emerald-300 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
               onClick={() => {
                 void dismissOnboarding();
                 nav.go("data");
@@ -237,7 +238,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
             </Button>
             <Button
               size="sm"
-              className="h-8 bg-emerald-700 hover:bg-emerald-800"
+              className="h-8 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950"
               onClick={() => void dismissOnboarding()}
             >
               Got it
@@ -246,32 +247,48 @@ export function DashboardView({ nav }: { nav: NavController }) {
         </div>
       ) : null}
 
-      {/* headline stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Correct under time" value={star} tone="accent" hint="north-star metric" />
-        <StatCard
-          label="Accuracy (all tests)"
-          value={`${totals.accuracy}%`}
-          hint={`${totals.correct}/${totals.attempted} attempted questions`}
-        />
-        <StatCard
-          label="Error tagging"
-          value={`${totals.tagCoverage}%`}
-          tone={totals.tagCoverage < 80 ? "warn" : "good"}
-          hint="share of wrong answers tagged C/F/A/R/T/G"
-        />
-        <StatCard
-          label="Time on record"
-          value={fmtSecs(totals.timeTotal)}
-          hint="across all in-app tests"
-        />
-      </div>
+      {/* headline stats — stagger in, numbers settle with a count-up */}
+      <Stagger className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StaggerItem>
+          <StatCard
+            label="Correct under time"
+            value={<CountUp value={star} />}
+            tone="accent"
+            hint="north-star metric"
+            spark={timelineData.map((d) => d.score)}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label="Accuracy (all tests)"
+            value={<CountUp value={totals.accuracy} format={(v) => `${Math.round(v)}%`} />}
+            hint={`${totals.correct}/${totals.attempted} attempted questions`}
+            spark={timelineData.map((d) => d.pct)}
+            sparkColor="var(--sem-stone)"
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label="Error tagging"
+            value={<CountUp value={totals.tagCoverage} format={(v) => `${Math.round(v)}%`} />}
+            tone={totals.tagCoverage < 80 ? "warn" : "good"}
+            hint="share of wrong answers tagged C/F/A/R/T/G"
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard
+            label="Time on record"
+            value={fmtSecs(totals.timeTotal)}
+            hint="across all in-app tests"
+          />
+        </StaggerItem>
+      </Stagger>
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* C3: backup nudge — slim amber banner above the Today card */}
         {backupNudge && !backupDismissed ? (
-          <div className="lg:col-span-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm text-amber-800">
+          <div className="lg:col-span-3 bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm text-amber-800 dark:text-amber-300">
               <span className="font-medium">Last backup: {backupNudge.label}</span> — export a JSON
               backup to keep your data safe.
             </span>
@@ -279,7 +296,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 border-amber-300 text-amber-800 hover:bg-amber-100"
+                className="h-8 border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:text-amber-300 dark:hover:bg-amber-500/10"
                 onClick={() => nav.go("data")}
               >
                 Export backup
@@ -287,7 +304,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 text-amber-700 hover:text-amber-800 hover:bg-amber-100"
+                className="h-8 text-amber-700 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-400 dark:hover:text-amber-300 dark:hover:bg-amber-500/10"
                 onClick={() => setBackupDismissed(true)}
               >
                 Dismiss
@@ -317,11 +334,11 @@ export function DashboardView({ nav }: { nav: NavController }) {
                 {ambers.slice(0, 12).map((h) => (
                   <li
                     key={`${h.subject}:${h.chapter}`}
-                    className="flex items-center justify-between gap-2 text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+                    className="flex items-center justify-between gap-2 text-sm bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25 rounded-lg px-3 py-2"
                   >
                     <div className="min-w-0">
-                      <div className="font-medium text-stone-800 truncate">{h.chapter}</div>
-                      <div className="text-xs text-stone-500">
+                      <div className="font-medium text-foreground truncate">{h.chapter}</div>
+                      <div className="text-xs text-muted-foreground">
                         {h.subject} · {h.correct}/{h.attempted} correct
                       </div>
                     </div>
@@ -357,14 +374,14 @@ export function DashboardView({ nav }: { nav: NavController }) {
                 {repeatFails.slice(0, 12).map((r) => (
                   <li
                     key={`${r.subject}:${r.chapter}`}
-                    className="flex items-center justify-between gap-2 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2"
+                    className="flex items-center justify-between gap-2 text-sm bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/25 rounded-lg px-3 py-2"
                   >
                     <div className="min-w-0">
-                      <div className="font-medium text-stone-800 truncate">{r.chapter}</div>
-                      <div className="text-xs text-stone-500">{r.subject}</div>
+                      <div className="font-medium text-foreground truncate">{r.chapter}</div>
+                      <div className="text-xs text-muted-foreground">{r.subject}</div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <Badge variant="outline" className="border-red-300 text-red-700">
+                      <Badge variant="outline" className="border-red-300 text-red-700 dark:border-red-500/40 dark:text-red-300">
                         failed {r.tests_failed} tests · {r.wrongs} wrong
                       </Badge>
                       {/* D5: one click to a pre-filled test for this chapter */}
@@ -404,13 +421,13 @@ export function DashboardView({ nav }: { nav: NavController }) {
               <Badge
                 key={s.id}
                 variant="outline"
-                className="border-emerald-300 bg-emerald-50 text-emerald-800 text-xs"
+                className="border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300 text-xs"
               >
                 {s.chapter} · due {s.next_revision === today ? "tonight" : s.next_revision}
               </Badge>
             ))}
             {due.length > 24 ? (
-              <span className="text-xs text-stone-400 self-center">+{due.length - 24} more</span>
+              <span className="text-xs text-muted-foreground/70 self-center">+{due.length - 24} more</span>
             ) : null}
           </div>
         )}
@@ -430,10 +447,10 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   onClick={() => setTimelineMode(m)}
                   aria-pressed={timelineMode === m}
                   className={cn(
-                    "px-2.5 py-0.5 rounded-full text-[11px] transition-colors",
+                    "press px-2.5 py-0.5 rounded-full text-[11px] transition-colors",
                     timelineMode === m
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground hover:bg-accent"
                   )}
                 >
                   {m === "raw" ? "raw" : "%"}
@@ -447,26 +464,41 @@ export function DashboardView({ nav }: { nav: NavController }) {
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={timelineData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid {...GRID} />
+                <AreaChart data={timelineData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                  <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CH.green} stopOpacity={0.22} />
+                      <stop offset="100%" stopColor={CH.green} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...GRID} vertical={false} />
                   <XAxis dataKey="label" tick={{ ...TICK_MONO }} />
                   <YAxis
                     tick={TICK_MONO}
                     tickFormatter={timelineMode === "pct" ? (v: number) => `${v}%` : undefined}
                   />
-                  <Tooltip {...chartTooltip} />
-                  <Line
+                  <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--chart-tick)", strokeDasharray: "3 3" }} />
+                  <Area
                     type="monotone"
                     dataKey={timelineMode === "pct" ? "pct" : "score"}
                     stroke={CH.green}
-                    strokeWidth={2.5}
-                    dot={false} activeDot={{ r: 4, fill: CH.green }}
+                    strokeWidth={2}
+                    fill={`url(#${gradientId})`}
+                    dot={false}
+                    activeDot={{ r: 4, fill: CH.green, stroke: "var(--background)", strokeWidth: 2 }}
                     name={timelineMode === "pct" ? "% of max" : "score"}
+                    isAnimationActive
+                    animationDuration={700}
                   />
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            {timelineMode === "pct"
+              ? "Each point is one logged test as a share of its max marks — papers of different difficulty stay comparable."
+              : "Each point is one logged test's raw score. Switch to % to compare across papers of different lengths."}
+          </ChartNote>
         </SectionCard>
 
         <SectionCard title="Accuracy by subject" subtitle="in-app attempts only">
@@ -479,9 +511,9 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <CartesianGrid {...GRID} />
                   <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
                   <YAxis domain={[0, 100]} tick={{ ...TICK_MONO }} />
-                  <Tooltip {...chartTooltip} />
+                  <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
-                  <Bar dataKey="accuracy" name="accuracy %" radius={[4, 4, 0, 0]}>
+                  <Bar maxBarSize={48} dataKey="accuracy" name="accuracy %" radius={[4, 4, 0, 0]}>
                     {subjAcc.map((s) => (
                       <Cell
                         key={s.subject}
@@ -493,6 +525,10 @@ export function DashboardView({ nav }: { nav: NavController }) {
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            Share of attempted questions answered correctly, per subject — the dashed line is the
+            70% green gate.
+          </ChartNote>
         </SectionCard>
 
         <SectionCard
@@ -508,12 +544,16 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <CartesianGrid {...GRID} />
                   <XAxis dataKey="tag" tick={TICK} interval={0} />
                   <YAxis allowDecimals={false} tick={{ ...TICK_MONO }} />
-                  <Tooltip content={<TagPctTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
-                  <Bar dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[4, 4, 0, 0]} />
+                  <Tooltip content={<TagPctTooltip />} cursor={{ fill: "var(--chart-grid)" }} />
+                  <Bar maxBarSize={48} dataKey="count" name="wrong answers" fill={CH.blueGray} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            C = concept gap · F = formula recall · A = accuracy slip · R = revision lapse · T = time
+            pressure · G = guess. The tallest bars are where marks come back cheapest.
+          </ChartNote>
         </SectionCard>
 
         <SectionCard
@@ -529,14 +569,18 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <CartesianGrid {...GRID} />
                   <XAxis dataKey="label" tick={TICK} interval={0} />
                   <YAxis tick={{ ...TICK_MONO }} />
-                  <Tooltip {...chartTooltip} />
+                  <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="actual" name="actual" fill={CH.green} radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="ifSkipped" name="if guesses skipped" fill={CH.stone} radius={[3, 3, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="actual" name="actual" fill={CH.green} radius={[3, 3, 0, 0]} />
+                  <Bar maxBarSize={48} dataKey="ifSkipped" name="if guesses skipped" fill={CH.stone} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            Green = the score you actually got. Grey = what the same paper would pay with guessed
+            attempts skipped — the gap is marks leaking to negative marking.
+          </ChartNote>
         </SectionCard>
 
         <SectionCard title="Time by subject" subtitle="total seconds spent per subject (in-app tests)">
@@ -549,12 +593,16 @@ export function DashboardView({ nav }: { nav: NavController }) {
                   <CartesianGrid {...GRID} />
                   <XAxis dataKey="subject" tick={{ ...TICK_MONO }} />
                   <YAxis tick={{ ...TICK_MONO }} />
-                  <Tooltip {...chartTooltip} />
-                  <Bar dataKey="minutes" name="minutes" fill={CH.amber} radius={[4, 4, 0, 0]} />
+                  <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
+                  <Bar maxBarSize={48} dataKey="minutes" name="minutes" fill={CH.amber} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            Minutes per subject across in-app tests — catch lopsided time allocation before the
+            exam does.
+          </ChartNote>
         </SectionCard>
       </div>
 
@@ -573,7 +621,7 @@ export function DashboardView({ nav }: { nav: NavController }) {
         ) : (
           <div className="overflow-x-auto max-h-96 overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-stone-400 uppercase">
+              <thead className="text-left text-[11px] text-muted-foreground/70 uppercase tracking-[0.06em]">
                 <tr>
                   <th className="py-2 pr-3">Date</th>
                   <th className="py-2 pr-3">Test</th>
@@ -587,27 +635,27 @@ export function DashboardView({ nav }: { nav: NavController }) {
               </thead>
               <tbody>
                 {sortedTests.map((t) => (
-                  <tr key={t.id} className="border-t border-stone-100">
-                    <td className="py-2 pr-3 text-stone-500 whitespace-nowrap">{t.date}</td>
-                    <td className="py-2 pr-3 font-medium text-stone-800 max-w-52 truncate">
+                  <tr key={t.id} className="border-t border-border/60 transition-colors hover:bg-accent/40">
+                    <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{t.date}</td>
+                    <td className="py-2 pr-3 font-medium text-foreground max-w-52 truncate">
                       {t.name}
                     </td>
                     <td className="py-2 pr-3">
-                      <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                         {t.type}
                       </Badge>
                     </td>
                     <td className="py-2 pr-3 text-right font-semibold tabular-nums">
                       {t.score}
-                      <span className="text-stone-400 font-normal">/{t.max_score}</span>
+                      <span className="text-muted-foreground/60 font-normal">/{t.max_score}</span>
                     </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+                    <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                       {t.subject_scores.Physics ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+                    <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                       {t.subject_scores.Chemistry ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-stone-600">
+                    <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                       {t.subject_scores.Mathematics ?? "—"}
                     </td>
                     <td className="py-2 text-right">
@@ -697,8 +745,8 @@ function TodayCard({
               variant="outline"
               className={
                 streak >= 3
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-stone-300 text-stone-600"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "border-border text-muted-foreground"
               }
             >
               {streak}-day streak
@@ -708,8 +756,8 @@ function TodayCard({
             variant="outline"
             className={
               done === 4
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                : "border-stone-300 text-stone-500"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300"
+                : "border-border text-muted-foreground/70"
             }
           >
             {done}/4 blocks
@@ -720,7 +768,7 @@ function TodayCard({
       <ul className="space-y-2">
         {BLOCKS.map((b) => (
           <li key={b.key}>
-            <label className="flex items-center gap-3 rounded-lg border border-stone-200 px-3 py-2.5 cursor-pointer hover:bg-stone-50 transition-colors">
+            <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-accent/50 press transition-colors">
               <Checkbox
                 checked={log?.blocks[b.key] ?? false}
                 onCheckedChange={() => void toggle(b.key)}
@@ -729,8 +777,8 @@ function TodayCard({
               <span
                 className={
                   log?.blocks[b.key]
-                    ? "text-sm text-stone-400 line-through"
-                    : "text-sm text-stone-800"
+                    ? "text-sm text-muted-foreground/60 line-through"
+                    : "text-sm text-foreground"
                 }
               >
                 {b.label}
@@ -740,7 +788,7 @@ function TodayCard({
         ))}
       </ul>
       <div className="mt-3">
-        <div className="text-[11px] uppercase tracking-wide text-stone-400 font-medium mb-1">
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium mb-1">
           Tonight&apos;s chapters
         </div>
         {editing ? (
@@ -755,13 +803,13 @@ function TodayCard({
               onBlur={() => void saveChapters()}
               autoFocus
             />
-            <Button size="sm" onClick={() => void saveChapters()} className="bg-emerald-700 hover:bg-emerald-800">
+            <Button size="sm" onClick={() => void saveChapters()} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
               Save
             </Button>
           </div>
         ) : (
           <button
-            className="w-full text-left text-sm rounded-lg border border-dashed border-stone-300 px-3 py-2.5 text-stone-600 hover:bg-stone-50 transition-colors"
+            className="w-full text-left text-sm rounded-lg border border-dashed border-border px-3 py-2.5 text-muted-foreground hover:bg-accent/50 press transition-colors"
             onClick={() => {
               setChapters(log?.chapters ?? "");
               setEditing(true);
@@ -771,7 +819,7 @@ function TodayCard({
           </button>
         )}
       </div>
-      <p className="text-[11px] text-stone-400 mt-3">
+      <p className="text-[11px] text-muted-foreground/70 mt-3">
         A plan fails if Tuesday night arrives and you don&apos;t know what to physically do. This
         card answers that in one glance.
       </p>

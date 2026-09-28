@@ -186,7 +186,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
               <button
                 type="button"
                 onClick={cancelEdit}
-                className="text-xs text-stone-500 underline hover:text-stone-700"
+                className="text-xs text-muted-foreground underline hover:text-foreground"
               >
                 Cancel edit
               </button>
@@ -222,7 +222,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
             <div className="space-y-1.5">
               <Label className="text-xs">Total max</Label>
               <Input value={maxScore} onChange={(e) => setMaxScore(e.target.value)} inputMode="numeric" />
-              <p className="text-[11px] text-stone-400">subject max shown as ⌈max/3⌉</p>
+              <p className="text-[11px] text-muted-foreground/70">subject max shown as ⌈max/3⌉</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Total score / {maxNum}</Label>
@@ -253,10 +253,10 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Abhyas mock #4" />
             </div>
           </div>
-          <Button onClick={save} className="w-full mt-4 bg-emerald-700 hover:bg-emerald-800">
+          <Button onClick={save} className="w-full mt-4 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
             {editingId ? "Update test" : "Log test"}
           </Button>
-          <p className="text-[11px] text-stone-400 mt-3">
+          <p className="text-[11px] text-muted-foreground/70 mt-3">
             Correct-under-time from external mocks is estimated as attempts − wrong. Marks lost to
             negatives = wrong count (each −1).
           </p>
@@ -279,7 +279,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
             ) : (
               <div className="overflow-x-auto max-h-96 overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-stone-400 uppercase">
+                  <thead className="text-left text-xs text-muted-foreground/70 uppercase">
                     <tr>
                       <th className="py-2 pr-3">Date</th>
                       <th className="py-2 pr-3">Source</th>
@@ -296,24 +296,24 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
                       <tr
                         key={t.id}
                         className={cn(
-                          "border-t border-stone-100",
-                          editingId === t.id && "bg-emerald-50/60"
+                          "border-t border-border/60",
+                          editingId === t.id && "bg-emerald-50 dark:bg-emerald-500/10/60"
                         )}
                       >
-                        <td className="py-2 pr-3 text-stone-500 whitespace-nowrap">{t.date}</td>
+                        <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{t.date}</td>
                         <td className="py-2 pr-3">
-                          <Badge variant="outline" className="border-stone-300 text-stone-600">
+                          <Badge variant="outline" className="border-border text-muted-foreground">
                             {t.source}
                           </Badge>
                         </td>
                         <td className="py-2 pr-3 text-right font-semibold tabular-nums">
                           {t.score === null ? "pending" : t.score}
-                          <span className="text-stone-400 font-normal">/{t.max_score}</span>
+                          <span className="text-muted-foreground/70 font-normal">/{t.max_score}</span>
                         </td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-stone-600">{t.subject_scores.Physics ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-stone-600">{t.subject_scores.Chemistry ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-stone-600">{t.subject_scores.Mathematics ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-stone-500">
+                        <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{t.subject_scores.Physics ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{t.subject_scores.Chemistry ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">{t.subject_scores.Mathematics ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                           {t.external_meta ? `${t.external_meta.attempts} / ${t.external_meta.wrong}` : "—"}
                         </td>
                         <td className="py-2 text-right whitespace-nowrap">
@@ -335,7 +335,7 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                                className="text-red-500 dark:text-red-400 hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10"
                               >
                                 Delete
                               </Button>
@@ -373,8 +373,8 @@ export function ExternalLogView({ nav }: { nav: NavController }) {
             )}
           </SectionCard>
           {latest ? (
-            <p className="text-xs text-stone-400">
-              Last logged: <strong className="text-stone-600">{latest.name}</strong> on {latest.date} —{" "}
+            <p className="text-xs text-muted-foreground/70">
+              Last logged: <strong className="text-muted-foreground">{latest.name}</strong> on {latest.date} —{" "}
               {latest.score === null ? "pending" : `${latest.score}/${latest.max_score}`}.
             </p>
           ) : null}

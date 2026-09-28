@@ -4,34 +4,155 @@
 // "Quiet Cockpit" system: warm stone neutrals, ONE emerald accent, hairline
 // structure (1px borders, no loud shadows), mono-tabular numerals everywhere
 // (Geist rule: numbers are data), type hierarchy via weight+color not size.
+// v2: fully theme-aware — chart colors + tooltips ride CSS vars, so dark mode
+// needs zero per-chart work. Motion atoms live in ./motion.tsx.
+import { useId } from "react";
+import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ChapterStatus, Subject } from "@/lib/types";
 import type { LucideIcon } from "lucide-react";
+import { HoverLift } from "./motion";
 
 // ─── Shared chart vocabulary (Performance + Dashboard use the same voice) ───
+// Values are CSS vars defined per-theme in globals.css — the SAME component
+// code renders correct colors in light and dark. SVG fill/stroke resolve vars.
 export const CH = {
-  green: "#047857",
-  amber: "#d97706",
-  red: "#dc2626",
-  stone: "#78716c",
-  blueGray: "#475569",
+  green: "var(--sem-emerald)",
+  amber: "var(--sem-amber)",
+  red: "var(--sem-red)",
+  stone: "var(--sem-stone)",
+  blueGray: "var(--sem-slate)",
+  violet: "var(--sem-violet)",
 };
+// Inline-style tooltip (recharts contentStyle) — vars resolve in inline styles.
+// For a richer tooltip use <ChartTip/> below.
 export const TIP = {
   contentStyle: {
     fontSize: 12,
     borderRadius: 8,
-    border: "1px solid #e7e5e4",
-    background: "#fff",
-    boxShadow: "0 8px 24px -12px rgba(28,25,23,0.18)",
+    border: "1px solid var(--border)",
+    background: "var(--popover)",
+    color: "var(--popover-foreground)",
+    boxShadow: "var(--tip-shadow)",
   },
 };
-export const GRID = { strokeDasharray: "3 3", stroke: "#e7e5e4" };
-export const TICK = { fontSize: 10, fill: "#78716c" };
+export const GRID = { strokeDasharray: "3 3", stroke: "var(--chart-grid)" };
+export const TICK = { fontSize: 10, fill: "var(--chart-tick)" };
 // numeric axes read as data → mono (Geist "tabular numerals for numbers")
-export const TICK_MONO = { fontSize: 11, fill: "#78716c", fontFamily: "var(--font-geist-mono)" };
+export const TICK_MONO = { fontSize: 11, fill: "var(--chart-tick)", fontFamily: "var(--font-geist-mono)" };
+
+// ─── Glass chart tooltip — one design for every chart in the app ─────────────
+type TipEntry = {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: number | string;
+  color?: string;
+  stroke?: string;
+  fill?: string;
+};
+export function ChartTip({
+  active,
+  payload,
+  label,
+  suffix,
+  formats,
+}: {
+  active?: boolean;
+  payload?: TipEntry[];
+  label?: string | number;
+  /** appended to the label line, e.g. "· 12 May" */
+  suffix?: string;
+  /** per-dataKey value formatter, e.g. { accuracy: (v) => `${v}%` } */
+  formats?: Record<string | number, (v: number | string) => string>;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2 shadow-[0_8px_24px_-12px_rgba(28,25,23,0.25)] text-xs max-w-64">
+      {label !== undefined && label !== "" ? (
+        <div className="font-medium text-foreground mb-1 leading-tight">
+          {label}
+          {suffix ? <span className="text-muted-foreground font-normal"> {suffix}</span> : null}
+        </div>
+      ) : null}
+      <div className="space-y-0.5">
+        {payload.map((p, i) => {
+          const raw = p.value;
+          const fmt = p.dataKey !== undefined ? formats?.[p.dataKey] : undefined;
+          const shown =
+            typeof raw === "number"
+              ? fmt
+                ? fmt(raw)
+                : String(Math.round(raw * 10) / 10)
+              : String(raw ?? "—");
+          return (
+            <div key={i} className="flex items-center gap-1.5 leading-snug">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: p.color || p.stroke || p.fill || "var(--sem-stone)" }}
+                aria-hidden="true"
+              />
+              <span className="text-muted-foreground">{p.name ?? String(p.dataKey)}</span>
+              <span className="ml-auto font-mono tabular-nums font-medium pl-2">{shown}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── ChartNote — a plain-English caption saying what the graph denotes ──────
+// (user rule: "what graphs denote" — every chart gets one line of meaning)
+export function ChartNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] leading-relaxed text-muted-foreground/75 mt-2 flex gap-1.5">
+      <span aria-hidden="true" className="select-none">◦</span>
+      <span>{children}</span>
+    </p>
+  );
+}
+
+// ─── Sparkline — 34px gradient area for StatCards, no axes, pure shape ───────
+export function Spark({
+  data,
+  color = "var(--sem-emerald)",
+  height = 34,
+}: {
+  data: number[];
+  color?: string;
+  height?: number;
+}) {
+  const gid = useId();
+  if (!data || data.length < 2) return null;
+  return (
+    <div style={{ height }} className="mt-2 -mx-1 pointer-events-none" aria-hidden="true">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke={color}
+            strokeWidth={1.5}
+            fill={`url(#${gid})`}
+            dot={false}
+            activeDot={false}
+            isAnimationActive
+            animationDuration={600}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 export function PageTitle({
   title,
@@ -62,65 +183,73 @@ export function StatCard({
   value,
   hint,
   tone = "default",
+  spark,
+  sparkColor,
 }: {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   hint?: string;
   tone?: "default" | "good" | "warn" | "bad" | "accent";
+  /** recent series → renders a tiny gradient sparkline under the number */
+  spark?: number[];
+  sparkColor?: string;
 }) {
   const toneCls = {
     default: "text-foreground",
-    good: "text-emerald-700",
-    warn: "text-amber-600",
-    bad: "text-red-600",
-    accent: "text-emerald-700",
+    good: "text-emerald-700 dark:text-emerald-400",
+    warn: "text-amber-600 dark:text-amber-400",
+    bad: "text-red-600 dark:text-red-400",
+    accent: "text-emerald-700 dark:text-emerald-400",
   }[tone];
   return (
-    <Card className="border-border bg-card shadow-[0_1px_2px_0_rgba(28,25,23,0.04)]">
-      <CardContent className="p-4">
-        {/* Geist Label-12-CAPS: tertiary labels in busy views read as chrome */}
-        <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground font-medium">{label}</div>
-        {/* every number is data → mono tabular (taste-skill cockpit rule) */}
-        <div className={cn("font-mono tabular-nums text-[22px] font-semibold tracking-tight mt-1", toneCls)}>
-          {value}
-        </div>
-        {hint ? <div className="text-xs text-muted-foreground/80 mt-1">{hint}</div> : null}
-      </CardContent>
-    </Card>
+    <HoverLift className="h-full">
+      <Card className="border-border bg-card card-shadow h-full transition-colors">
+        <CardContent className="p-4">
+          {/* Geist Label-12-CAPS: tertiary labels in busy views read as chrome */}
+          <div className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground font-medium">{label}</div>
+          {/* every number is data → mono tabular (taste-skill cockpit rule) */}
+          <div className={cn("font-mono tabular-nums text-[22px] font-semibold tracking-tight mt-1", toneCls)}>
+            {value}
+          </div>
+          {hint ? <div className="text-xs text-muted-foreground/80 mt-1">{hint}</div> : null}
+          {spark && spark.length > 1 ? <Spark data={spark} color={sparkColor} /> : null}
+        </CardContent>
+      </Card>
+    </HoverLift>
   );
 }
 
 export function TierBadge({ tier }: { tier: 1 | 2 | 3 }) {
   if (tier === 1) {
     return (
-      <Badge className="bg-emerald-700 hover:bg-emerald-700 text-white border-0">T1</Badge>
+      <Badge className="bg-emerald-700 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-500 text-white dark:text-emerald-950 border-0">T1</Badge>
     );
   }
   if (tier === 2) {
-    return <Badge variant="outline" className="border-stone-300 text-stone-600">T2</Badge>;
+    return <Badge variant="outline" className="border-border text-muted-foreground">T2</Badge>;
   }
-  return <Badge variant="outline" className="border-stone-200 text-stone-400">T3</Badge>;
+  return <Badge variant="outline" className="border-border/70 text-muted-foreground/60">T3</Badge>;
 }
 
 export function HealthChip({ color, accuracy }: { color: string; accuracy: number | null }) {
   if (accuracy === null || color === "gray") {
-    return <Badge variant="outline" className="border-stone-200 text-stone-400">no data</Badge>;
+    return <Badge variant="outline" className="border-border text-muted-foreground/60">no data</Badge>;
   }
   const cls =
     color === "green"
-      ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+      ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30"
       : color === "amber"
-        ? "bg-amber-100 text-amber-800 border-amber-300"
-        : "bg-red-100 text-red-700 border-red-200";
+        ? "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30"
+        : "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30";
   return <Badge variant="outline" className={cls}>{accuracy}%</Badge>;
 }
 
 const STATUS_CLS: Record<ChapterStatus, string> = {
-  "Not Started": "border-stone-200 text-stone-500",
-  Learning: "border-sky-200 bg-sky-50 text-sky-700",
-  "PYQs Done": "border-violet-200 bg-violet-50 text-violet-700",
-  "70% Gate Passed": "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Maintenance: "border-stone-300 bg-stone-100 text-stone-700",
+  "Not Started": "border-border text-muted-foreground",
+  Learning: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300",
+  "PYQs Done": "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300",
+  "70% Gate Passed": "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300",
+  Maintenance: "border-stone-300 bg-stone-100 text-stone-700 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300",
 };
 
 export function StatusBadge({ status }: { status: ChapterStatus }) {
@@ -136,8 +265,8 @@ export function SubjectDot({ subject }: { subject: Subject }) {
     subject === "Physics"
       ? "bg-amber-500"
       : subject === "Chemistry"
-        ? "bg-emerald-600"
-        : "bg-stone-800";
+        ? "bg-emerald-600 dark:bg-emerald-400"
+        : "bg-stone-800 dark:bg-stone-300";
   return <span className={cn("inline-block w-2 h-2 rounded-full mr-1.5 align-middle", cls)} />;
 }
 
@@ -155,7 +284,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("border-border bg-card shadow-[0_1px_2px_0_rgba(28,25,23,0.04)]", className)}>
+    <Card className={cn("border-border bg-card card-shadow", className)}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -199,14 +328,14 @@ export function EmptyState({
 }) {
   return (
     <div className="border border-dashed border-border rounded-xl px-6 py-10 flex flex-col items-center text-center bg-card/50">
-      <div className="w-11 h-11 rounded-xl bg-stone-100 text-stone-400 grid place-items-center mb-3">
+      <div className="w-11 h-11 rounded-xl bg-muted text-muted-foreground/70 grid place-items-center mb-3">
         <Icon className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
       </div>
       <div className="text-sm font-semibold text-foreground">{title}</div>
       <p className="text-[13px] text-muted-foreground mt-1 max-w-sm leading-relaxed">{description}</p>
       {primary && primaryLabel ? (
         <div className="flex items-center gap-2 mt-4">
-          <Button size="sm" onClick={primary} className="bg-emerald-700 hover:bg-emerald-800 press">
+          <Button size="sm" onClick={primary} className="bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950 press">
             {primaryLabel}
           </Button>
           {secondary && secondaryLabel ? (
@@ -285,12 +414,16 @@ export function AnswerBits({
 
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-      <span className={attempted && mine !== "—" ? "text-stone-600" : "text-stone-400"}>
+      <span className={attempted && mine !== "—" ? "text-muted-foreground" : "text-muted-foreground/60"}>
         You:{" "}
         <strong
           className={cn(
             "break-all",
-            status === "wrong" ? "text-red-600" : status === "right" ? "text-emerald-700" : "text-stone-700"
+            status === "wrong"
+              ? "text-red-600 dark:text-red-400"
+              : status === "right"
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-foreground"
           )}
           title={mine}
         >
@@ -298,7 +431,7 @@ export function AnswerBits({
           {!attempted ? " (skipped)" : ""}
         </strong>
       </span>
-      <span className={keyPending ? "text-stone-400" : "text-emerald-700"}>
+      <span className={keyPending ? "text-muted-foreground/60" : "text-emerald-700 dark:text-emerald-400"}>
         Correct:{" "}
         <strong className="break-all" title={theirs}>
           {theirs}

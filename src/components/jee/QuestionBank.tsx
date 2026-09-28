@@ -240,7 +240,7 @@ export function QuestionBankView() {
         title="Question Bank"
         subtitle="Manual entry lives here. Bank questions feed the CBT player; chapter names come from the syllabus seed."
         right={
-          <Badge variant="outline" className="border-stone-300 text-stone-600">
+          <Badge variant="outline" className="border-border text-muted-foreground">
             {questions.length} questions
           </Badge>
         }
@@ -336,8 +336,8 @@ export function QuestionBankView() {
                       onClick={() => setAnswerIdx(i)}
                       className={`w-7 h-7 rounded-full grid place-items-center text-xs font-bold border transition-colors ${
                         answerIdx === i
-                          ? "bg-emerald-700 text-white border-emerald-700"
-                          : "bg-white text-stone-500 border-stone-300 hover:border-emerald-500"
+                          ? "bg-emerald-700 dark:bg-emerald-500 text-white dark:text-emerald-950 border-emerald-700 dark:border-emerald-500"
+                          : "bg-card text-muted-foreground border-border hover:border-emerald-500 dark:hover:border-emerald-400 dark:hover:border-emerald-500"
                       }`}
                     >
                       {OPTION_LETTERS[i]}
@@ -385,7 +385,7 @@ export function QuestionBankView() {
                   <img
                     src={image}
                     alt="Question figure preview"
-                    className="h-16 max-w-[160px] object-contain rounded border border-stone-200 bg-white"
+                    className="h-16 max-w-[160px] object-contain rounded border border-border bg-white"
                   />
                   <div className="flex flex-col gap-1">
                     <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
@@ -395,7 +395,7 @@ export function QuestionBankView() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                      className="text-red-500 dark:text-red-400 hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10"
                       onClick={() => setImage(null)}
                     >
                       Remove
@@ -414,24 +414,24 @@ export function QuestionBankView() {
                 className="hidden"
                 onChange={(e) => void onImageFile(e)}
               />
-              <p className="text-[11px] text-stone-400">File picker or Ctrl+V paste · downscaled to 800px</p>
+              <p className="text-[11px] text-muted-foreground/70">File picker or Ctrl+V paste · downscaled to 800px</p>
             </div>
 
             {editingId ? (
               <div className="flex items-center gap-3">
-                <Button onClick={() => void saveEdit()} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
+                <Button onClick={() => void saveEdit()} className="flex-1 bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
                   Save changes
                 </Button>
                 <button
                   type="button"
-                  className="text-xs text-stone-400 underline hover:text-stone-600"
+                  className="text-xs text-muted-foreground/70 underline hover:text-muted-foreground"
                   onClick={resetForm}
                 >
                   Cancel edit
                 </button>
               </div>
             ) : (
-              <Button onClick={addQuestion} className="w-full bg-emerald-700 hover:bg-emerald-800">
+              <Button onClick={addQuestion} className="w-full bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-500 dark:hover:bg-emerald-600 dark:text-emerald-950">
                 Add to bank
               </Button>
             )}
@@ -498,38 +498,38 @@ export function QuestionBankView() {
                   <li
                     key={q.id}
                     className={cn(
-                      "border rounded-lg p-3 hover:bg-stone-50 transition-colors",
-                      editingId === q.id ? "border-emerald-400 bg-emerald-50/40" : "border-stone-200"
+                      "border rounded-lg p-3 hover:bg-accent/50 transition-colors",
+                      editingId === q.id ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10/40" : "border-border"
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <SubjectDot subject={q.subject} />
-                          <span className="text-xs text-stone-500">{q.chapter}</span>
+                          <span className="text-xs text-muted-foreground">{q.chapter}</span>
                           {tier ? <TierBadge tier={tier} /> : null}
-                          <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                          <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                             {q.type === "MCQ" ? "MCQ" : "NUM"}
                           </Badge>
-                          <span className="text-[10px] text-stone-400">{q.source}</span>
+                          <span className="text-[10px] text-muted-foreground/70">{q.source}</span>
                           {usedBy > 0 ? (
-                            <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-400">
+                            <Badge variant="outline" className="text-[10px] border-border text-muted-foreground/70">
                               in {usedBy} test{usedBy > 1 ? "s" : ""}
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="text-sm text-stone-800">{q.question}</p>
+                        <p className="text-sm text-foreground">{q.question}</p>
                         {q.type === "MCQ" ? (
-                          <p className="text-xs text-stone-500 mt-1">
+                          <p className="text-xs text-muted-foreground mt-1">
                             Correct:{" "}
-                            <span className="text-emerald-700 font-medium">
+                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">
                               {OPTION_LETTERS[q.answer as number]} · {q.options[q.answer as number]}
                             </span>
                           </p>
                         ) : (
-                          <p className="text-xs text-stone-500 mt-1">
+                          <p className="text-xs text-muted-foreground mt-1">
                             Answer:{" "}
-                            <span className="text-emerald-700 font-medium">
+                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">
                               {q.answer as number}
                               {q.tolerance ? ` ± ${q.tolerance}` : " (exact)"}
                             </span>
@@ -539,7 +539,7 @@ export function QuestionBankView() {
                           <img
                             src={q.image}
                             alt={`Figure for: ${q.question.slice(0, 60)}`}
-                            className="mt-1.5 max-h-24 max-w-full object-contain rounded border border-stone-200 bg-white"
+                            className="mt-1.5 max-h-24 max-w-full object-contain rounded border border-border bg-white"
                           />
                         ) : null}
                       </div>
@@ -547,7 +547,7 @@ export function QuestionBankView() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="text-stone-500 hover:text-stone-700 hover:bg-stone-100"
+                          className="text-muted-foreground hover:text-foreground hover:bg-accent"
                           onClick={() => startEdit(q)}
                         >
                           Edit
@@ -558,7 +558,7 @@ export function QuestionBankView() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                              className="text-red-500 dark:text-red-400 hover:text-red-600 hover:bg-red-50 dark:bg-red-500/10 dark:hover:bg-red-500/10"
                             >
                               Delete
                             </Button>
@@ -568,7 +568,7 @@ export function QuestionBankView() {
                               <AlertDialogTitle>Delete this question?</AlertDialogTitle>
                               <AlertDialogDescription>
                                 {usedBy > 0 ? (
-                                  <span className="font-medium text-amber-700">
+                                  <span className="font-medium text-amber-700 dark:text-amber-300">
                                     Used by {usedBy} saved test{usedBy > 1 ? "s" : ""} — deleting
                                     will affect their review.{" "}
                                   </span>

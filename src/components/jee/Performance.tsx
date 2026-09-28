@@ -1,15 +1,16 @@
 "use client";
 
 // ─── Performance: subject → chapter drill-down, trends, every test, mistakes ─
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   CartesianGrid,
   Cell,
   ComposedChart,
   Legend,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -27,7 +28,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { NavController } from "./App";
-import { AnswerBits, CH, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO, TIP } from "./shared";
+import { AnswerBits, CH, ChartNote, ChartTip, EmptyNote, GRID, PageTitle, SectionCard, StatCard, TICK, TICK_MONO } from "./shared";
+import { CountUp, Stagger, StaggerItem } from "./motion";
 import { useLive } from "@/lib/idb";
 import { tagOf } from "@/lib/analytics";
 import {
@@ -41,15 +43,67 @@ import {
 } from "@/lib/types";
 
 const TAG_CLS: Record<ErrorTag, string> = {
-  C: "bg-red-100 text-red-700 border-red-200",
-  F: "bg-amber-100 text-amber-800 border-amber-300",
-  A: "bg-orange-100 text-orange-700 border-orange-200",
-  R: "bg-sky-100 text-sky-700 border-sky-200",
-  T: "bg-violet-100 text-violet-700 border-violet-200",
-  G: "bg-stone-200 text-stone-700 border-stone-300",
+  C: "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
+  F: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
+  A: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
+  R: "bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
+  T: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
+  G: "bg-stone-200 text-stone-700 border-stone-300 dark:bg-stone-500/15 dark:text-stone-300 dark:border-stone-500/30",
 };
 
 type SubjectFilter = "all" | Subject;
+
+// tooltips for charts whose value needs payload context (ChartTip is generic)
+function ScoreTip({
+  active,
+  payload,
+  label,
+  subject,
+}: {
+  active?: boolean;
+  payload?: { value?: number | string; name?: string | number; payload?: { raw?: number; max?: number } }[];
+  label?: string | number;
+  subject: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0]?.payload ?? {};
+  const isPct = payload[0]?.name === "% of max";
+  return (
+    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(28,25,23,0.25)]">
+      <div className="font-medium text-foreground mb-1 max-w-56 truncate">{label}</div>
+      <div className="font-mono tabular-nums">
+        {isPct ? (
+          <>
+            {p.raw ?? "—"}/{p.max ?? "—"} <span className="text-muted-foreground">({String(payload[0].value)}%)</span>
+          </>
+        ) : (
+          <>
+            {String(payload[0].value)} <span className="text-muted-foreground">{subject} marks</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChapterTip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { value?: number | string; payload?: { full?: string; attempted?: number } }[];
+}) {
+  if (!active || !payload || payload.length === 0 || !payload[0]?.payload) return null;
+  const p = payload[0].payload!;
+  return (
+    <div className="rounded-lg border border-border bg-popover text-popover-foreground px-3 py-2 text-xs shadow-[0_8px_24px_-12px_rgba(28,25,23,0.25)]">
+      <div className="font-medium text-foreground">{p.full}</div>
+      <div className="font-mono tabular-nums text-muted-foreground">
+        {String(payload[0].value)}% of {p.attempted} attempted
+      </div>
+    </div>
+  );
+}
 
 export function PerformanceView({ nav }: { nav: NavController }) {
   const responses = useLive("responses");
@@ -204,6 +258,8 @@ export function PerformanceView({ nav }: { nav: NavController }) {
   const toleranceOf = (r: ResponseRecord) =>
     testById.get(r.test_id)?.pdf_meta?.tolerance ?? 0;
 
+  const gradientId = useId();
+
   return (
     <div className="space-y-6">
       <PageTitle
@@ -212,9 +268,9 @@ export function PerformanceView({ nav }: { nav: NavController }) {
       />
 
       {/* filters */}
-      <div className="bg-white border border-stone-200 rounded-lg p-4 flex flex-wrap items-end gap-3">
+      <div className="bg-card border border-border card-shadow rounded-lg p-4 flex flex-wrap items-end gap-3">
         <div className="space-y-1.5 min-w-[180px]">
-          <label className="text-xs font-medium text-stone-500">Subject</label>
+          <label className="text-xs font-medium text-muted-foreground">Subject</label>
           <Select
             value={subject}
             onValueChange={(v) => {
@@ -236,7 +292,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
           </Select>
         </div>
         <div className="space-y-1.5 min-w-[220px]">
-          <label className="text-xs font-medium text-stone-500">Chapter</label>
+          <label className="text-xs font-medium text-muted-foreground">Chapter</label>
           <Select
             value={chapter}
             onValueChange={setChapter}
@@ -267,7 +323,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
             Reset
           </Button>
         )}
-        <p className="text-[11px] text-stone-400 ml-auto max-w-[260px]">
+        <p className="text-[11px] text-muted-foreground/70 ml-auto max-w-[260px]">
           {subject === "all"
             ? "Pick a subject to unlock the chapter dropdown."
             : `${scoped.length} answered questions in scope.`}
@@ -275,13 +331,28 @@ export function PerformanceView({ nav }: { nav: NavController }) {
       </div>
 
       {/* stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatCard label="Accuracy" value={`${stats.accuracy}%`} hint={`${stats.correct}/${stats.attempted} attempted`} tone={stats.accuracy >= 70 ? "good" : stats.accuracy >= 40 ? "warn" : "bad"} />
-        <StatCard label="Wrong" value={stats.wrong} hint={stats.untagged > 0 ? `${stats.untagged} untagged` : "all tagged"} tone={stats.wrong > 0 ? "bad" : "default"} />
-        <StatCard label="Avg time / Q" value={fmtSecs(Math.round(stats.avgTime))} />
-        <StatCard label="Tests in scope" value={stats.tests} hint="tests touching this selection" />
-        <StatCard label="Questions seen" value={scoped.length} />
-      </div>
+      <Stagger className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StaggerItem>
+          <StatCard
+            label="Accuracy"
+            value={<CountUp value={stats.accuracy} format={(v) => `${Math.round(v)}%`} />}
+            hint={`${stats.correct}/${stats.attempted} attempted`}
+            tone={stats.accuracy >= 70 ? "good" : stats.accuracy >= 40 ? "warn" : "bad"}
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Wrong" value={stats.wrong} hint={stats.untagged > 0 ? `${stats.untagged} untagged` : "all tagged"} tone={stats.wrong > 0 ? "bad" : "default"} />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Avg time / Q" value={fmtSecs(Math.round(stats.avgTime))} />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Tests in scope" value={stats.tests} hint="tests touching this selection" />
+        </StaggerItem>
+        <StaggerItem>
+          <StatCard label="Questions seen" value={scoped.length} />
+        </StaggerItem>
+      </Stagger>
 
       {/* charts */}
       <div className="grid lg:grid-cols-2 gap-6">
@@ -299,14 +370,18 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                   <XAxis dataKey="label" tick={TICK} interval={0} angle={-25} textAnchor="end" height={48} />
                   <YAxis yAxisId="l" tick={TICK_MONO} allowDecimals={false} />
                   <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={TICK_MONO} />
-                  <Tooltip {...TIP} />
+                  <Tooltip content={<ChartTip />} cursor={{ fill: "var(--chart-grid)" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar yAxisId="l" dataKey="attempted" name="attempted" fill={CH.stone} radius={[3, 3, 0, 0]} />
-                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                  <Bar maxBarSize={48} yAxisId="l" dataKey="attempted" name="attempted" fill={CH.stone} radius={[3, 3, 0, 0]} />
+                  <Line yAxisId="r" dataKey="accuracy" name="accuracy %" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: CH.green }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            Bars count the questions you attempted in each test; the line is accuracy on those
+            questions. Volume without accuracy is churn — watch them move together.
+          </ChartNote>
         </SectionCard>
 
         <SectionCard
@@ -322,31 +397,37 @@ export function PerformanceView({ nav }: { nav: NavController }) {
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={scoreSeries} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid {...GRID} />
+                <AreaChart data={scoreSeries} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CH.green} stopOpacity={0.22} />
+                      <stop offset="100%" stopColor={CH.green} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...GRID} vertical={false} />
                   <XAxis dataKey="label" tick={TICK} interval={0} angle={-25} textAnchor="end" height={48} />
                   <YAxis
                     tick={TICK_MONO}
                     domain={subject === "all" ? [0, 100] : ["auto", "auto"]}
                   />
                   <Tooltip
-                    {...TIP}
-                    formatter={(value, name, item) => {
-                      const p = item?.payload as { raw?: number; max?: number; subjectMarks?: number | null };
-                      if (name === "% of max") return [`${p?.raw}/${p?.max} (${value}%)`, name];
-                      if (name === "subject marks") return [`${value}`, `${subject} marks`];
-                      return [value, name];
-                    }}
+                    content={<ScoreTip subject={subject === "all" ? "" : String(subject)} />}
+                    cursor={{ stroke: "var(--chart-tick)", strokeDasharray: "3 3" }}
                   />
                   {subject === "all" ? (
-                    <Line dataKey="pct" name="% of max" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                    <Area dataKey="pct" name="% of max" stroke={CH.green} strokeWidth={2} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 3, fill: CH.green }} />
                   ) : (
-                    <Line dataKey="subjectMarks" name="subject marks" stroke={CH.green} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                    <Area dataKey="subjectMarks" name="subject marks" stroke={CH.green} strokeWidth={2} fill={`url(#${gradientId})`} dot={false} activeDot={{ r: 3, fill: CH.green }} />
                   )}
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
+          <ChartNote>
+            {subject === "all"
+              ? "% of max per scored test — the fair comparison across papers of different length."
+              : `Raw marks in ${SUBJECT_SHORT[subject as Subject]} per test — the paper max covers all three subjects, so % would mislead.`}
+          </ChartNote>
         </SectionCard>
 
         {subject !== "all" && chapter === "all" ? (
@@ -364,16 +445,10 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                     <CartesianGrid {...GRID} />
                     <XAxis dataKey="chapter" tick={TICK} interval={0} angle={-30} textAnchor="end" />
                     <YAxis domain={[0, 100]} tick={TICK_MONO} />
-                    <Tooltip
-                      {...TIP}
-                      formatter={(value, _name, item) => {
-                        const p = item?.payload as { full?: string; attempted?: number };
-                        return [`${value}% of ${p?.attempted} attempted`, p?.full ?? ""];
-                      }}
-                    />
+                    <Tooltip content={<ChapterTip />} cursor={{ fill: "var(--chart-grid)" }} />
                     <ReferenceLine y={70} stroke={CH.green} strokeDasharray="4 4" />
                     <ReferenceLine y={40} stroke={CH.red} strokeDasharray="4 4" />
-                    <Bar dataKey="accuracy" radius={[3, 3, 0, 0]}>
+                    <Bar maxBarSize={48} dataKey="accuracy" radius={[3, 3, 0, 0]}>
                       {chapterBars.map((b) => (
                         <Cell
                           key={b.full}
@@ -385,6 +460,10 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                 </ResponsiveContainer>
               </div>
             )}
+            <ChartNote>
+              Weakest chapter on the left. The dashed lines are the health gates: green at 70%,
+              red floor at 40% — work the left side first.
+            </ChartNote>
           </SectionCard>
         ) : null}
       </div>
@@ -403,8 +482,8 @@ export function PerformanceView({ nav }: { nav: NavController }) {
         ) : (
           <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
             <table className="w-full text-sm min-w-[640px]">
-              <thead className="text-left text-[11px] uppercase tracking-wide text-stone-400">
-                <tr className="border-b border-stone-200">
+              <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground/70">
+                <tr className="border-b border-border">
                   <th className="py-2 pr-3 font-medium">Date</th>
                   <th className="py-2 pr-3 font-medium">Test</th>
                   <th className="py-2 pr-3 font-medium">Type</th>
@@ -421,46 +500,50 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                     <tr
                       key={t.id}
                       onClick={() => nav.openResults(t.id)}
-                      className="border-b border-stone-100 hover:bg-emerald-50/50 cursor-pointer transition-colors"
+                      className="border-b border-border/60 hover:bg-accent/50 cursor-pointer transition-colors"
                     >
-                      <td className="py-2 pr-3 text-stone-500 whitespace-nowrap">{t.date}</td>
+                      <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{t.date}</td>
                       <td className="py-2 pr-3 max-w-[260px]">
-                        <span className="block truncate font-medium text-stone-800" title={t.name}>
+                        <span className="block truncate font-medium text-foreground" title={t.name}>
                           {t.name}
                         </span>
-                        <span className="text-[11px] text-stone-400">{t.source}</span>
+                        <span className="text-[11px] text-muted-foreground/70">{t.source}</span>
                       </td>
                       <td className="py-2 pr-3">
-                        <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                           {t.type}
                         </Badge>
                       </td>
                       <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
                         {t.score === null ? (
-                          <span className="text-amber-600 text-xs font-medium">pending</span>
+                          <span className="text-amber-600 dark:text-amber-400 text-xs font-medium">pending</span>
                         ) : subject !== "all" ? (
                           <span>
                             <strong>{t.subject_scores[subject] ?? 0}</strong>
-                            <span className="text-[11px] text-stone-400 ml-1">subj. marks</span>
+                            <span className="text-[11px] text-muted-foreground/70 ml-1">subj. marks</span>
                           </span>
                         ) : (
                           <span>
                             <strong>{t.score}</strong>
-                            <span className="text-stone-400">/{t.max_score}</span>
+                            <span className="text-muted-foreground/70">/{t.max_score}</span>
                           </span>
                         )}
                       </td>
-                      <td className="py-2 pr-3 tabular-nums text-stone-500">
+                      <td className="py-2 pr-3 tabular-nums text-muted-foreground">
                         {s ? `${s.correct}/${s.attempted}` : "—"}
                       </td>
                       <td className="py-2">
                         {acc === null ? (
-                          <span className="text-stone-300">—</span>
+                          <span className="text-muted-foreground/40">—</span>
                         ) : (
                           <span
                             className={cn(
                               "font-semibold tabular-nums",
-                              acc >= 70 ? "text-emerald-700" : acc >= 40 ? "text-amber-600" : "text-red-600"
+                              acc >= 70
+                                ? "text-emerald-700 dark:text-emerald-400"
+                                : acc >= 40
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : "text-red-600 dark:text-red-400"
                             )}
                           >
                             {acc}%
@@ -498,31 +581,31 @@ export function PerformanceView({ nav }: { nav: NavController }) {
             {wrongRows.map((r) => {
               const t = testById.get(r.test_id);
               return (
-                <li key={r.id} className="border border-red-100 bg-red-50/40 rounded-lg p-3">
+                <li key={r.id} className="border border-red-100 bg-red-50/40 dark:border-red-500/20 dark:bg-red-500/5 rounded-lg p-3 transition-colors">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="text-xs font-bold text-stone-500">Q{r.q_no ?? "?"}</span>
-                        <Badge variant="outline" className="text-[10px] border-stone-300 text-stone-500">
+                        <span className="text-xs font-bold text-muted-foreground">Q{r.q_no ?? "?"}</span>
+                        <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
                           {r.type === "numerical" ? "NUM" : "MCQ"}
                         </Badge>
-                        <span className="text-[11px] text-stone-400">{r.chapter}</span>
+                        <span className="text-[11px] text-muted-foreground/70">{r.chapter}</span>
                         {r.error_tag ? (
                           <Badge variant="outline" className={cn("text-[10px]", TAG_CLS[r.error_tag])}>
                             {tagOf(r.error_tag)}
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700">
+                          <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 dark:border-amber-500/40 dark:text-amber-300">
                             untagged
                           </Badge>
                         )}
                         {r.note ? (
-                          <span className="text-[11px] text-stone-500 italic truncate max-w-[240px]" title={r.note}>
+                          <span className="text-[11px] text-muted-foreground italic truncate max-w-[240px]" title={r.note}>
                             “{r.note}”
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-sm text-stone-800">{r.question_snippet}</p>
+                      <p className="text-sm text-foreground">{r.question_snippet}</p>
                       <div className="mt-1.5">
                         <AnswerBits
                           selected={r.selected}
@@ -537,7 +620,7 @@ export function PerformanceView({ nav }: { nav: NavController }) {
                       </div>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-1">
-                      <span className="text-[11px] text-stone-400 max-w-[160px] truncate" title={t?.name}>
+                      <span className="text-[11px] text-muted-foreground/70 max-w-[160px] truncate" title={t?.name}>
                         {t?.name ?? "deleted test"}
                       </span>
                       <Button

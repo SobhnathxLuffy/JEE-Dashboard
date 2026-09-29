@@ -401,3 +401,27 @@ Work Log:
 
 Stage Summary:
 - Remote main = local main after push; repo publishes clean (no secrets, no sandbox artifacts, no duplicate tarball blob)
+
+---
+Task ID: 15
+Agent: main (Super Z)
+Task: Build a working Android APK (syncable, with question-paper sync), verify, test, push.
+
+Work Log:
+- Approach: Capacitor 8 wrapping a static export (self-contained, offline, IndexedDB in app WebView, Supabase sync unchanged). Rejected TWA/PWABuilder (needs hosting) and RN rewrite (absurd scope)
+- Mobile adaptations: next.config MOBILE_EXPORT=1 (output:export + isolated .next-mobile distDir); scripts/build-mobile.mjs moves /api/ai aside, assembles out/ (Next 16 writes export INTO distDir), restores, cap sync; src/lib/native.ts detects Capacitor runtime via window global (zero bundle cost on web)
+- AI on device: direct provider calls via injected CapacitorHttp (jsonMode retry parity with the proxy), fake-stream replay through onDelta (native bridge can't SSE); web path untouched
+- Papers sync (user request): papers added to SYNCED_STORES; Blob⇄base64 data-URL codec in sync.ts (toWire/fromWire), ~4.8MB cap → bigger PDFs sync metadata-only (pdf_sync_skipped) ; size-aware push chunking (~1.5MB/request, 200 rows max); Papers.tsx guards missing data; SyncDialog labels/counts/footnote updated
+- Mobile auth: signInOtp omits emailRedirectTo on native; new verifyOtp backend method + verifySignIn() accepts pasted magic-link URL (token_hash) or 6-digit code; SyncDialog paste-link field with platform-aware copy
+- PwaRegister skips SW inside the app (assets bundled natively)
+- Capacitor scaffold: appId com.sobhnathx.jeestudy, androidScheme https, assets/ (icon/splash dark+light via scripts/make_mobile_assets.py) → 136 res files; committed debug.keystore + signingConfig so every build (local+CI) updates in place
+- Local SDK: cmdline-tools + platform-36 + build-tools 36.0.0 + Temurin JDK 21 tarball (sandbox java was JRE-only) → assembleDebug SUCCESS: app-debug.apk 6.9MB, apksigner verify OK, web assets present
+- E2E on the export build (python http.server :8088 + agent-browser): mock-sync device A uploads paper (DataTransfer injection) → signed in → synced; device B (?device=b, separate IndexedDB) pulled the SAME paper with data as Blob 3184 bytes = byte-identical round-trip; AI settings dialog OK; 0 console errors; lint clean (android//out ignored in eslint)
+- CI (.github/workflows/android.yml): npm ci → build:mobile → gradlew assembleDebug → publish rolling "mobile-latest" release + artifact. First run failed: Capacitor CLI needs Node >=22 (pinned 20) → fixed → GREEN
+- Verified release: "JEE Study — Android (latest)" with JEE-Study-debug.apk 6.6MB (CI-built)
+
+Stage Summary:
+- APK downloadable: github.com/SobhnathxLuffy/JEE-Dashboard/releases/download/mobile-latest/JEE-Study-debug.apk (+ download/JEE-Study-debug.apk local copy)
+- Papers now sync across devices (≤~4.8MB PDFs included; bigger = metadata + re-upload hint)
+- Phone sign-in = paste magic link into the app (native path); web flow unchanged
+- Known limits: AI answers don't stream in the APK (arrive whole); Google Calendar push may be limited in WebView (GIS popup) — honest notes in README

@@ -425,3 +425,22 @@ Stage Summary:
 - Papers now sync across devices (≤~4.8MB PDFs included; bigger = metadata + re-upload hint)
 - Phone sign-in = paste magic link into the app (native path); web flow unchanged
 - Known limits: AI answers don't stream in the APK (arrive whole); Google Calendar push may be limited in WebView (GIS popup) — honest notes in README
+
+---
+Task ID: 16
+Agent: main (Super Z)
+Task: Fix the APK sync sign-in failure ("Failed to load chunk /_next/static/chunks/46b334ca3410349e.js from module 31002") reported by the user when sending the magic-link email; verify everything, push, deliver fixed APK.
+
+Work Log:
+- Diagnosed: the error is Turbopack's runtime ChunkLoadError — supabase-js was the app's ONLY lazily imported chunk (sync.ts `import("@supabase/supabase-js")`), fetched via on-demand <script> injection the moment "Send link" ran (probeProject uses plain fetch, which is why "connect" worked). The chunk EXISTS in the APK assets and the URL was correct; the WebView refused the late injected script (stale-cache-from-update / injected-script flakiness class).
+- Root fix (sync.ts): supabase-js statically imported into the entry graph — the auth path needs NO runtime chunk fetch. verify-eager-chunks.mjs proves the export now has ZERO lazy chunks (12/12 eager incl. pdfjs) — the entire failure class is gone.
+- Second real bug in the same flow: with flowType "pkce", a TAPPED link lands on redirect?code=… which verifySignIn REJECTED ("That link has no token in it"). verifyOtp now accepts token_hash (raw email link), ?code= (exchangeCodeForSession — verifier lives in the app's localStorage), #access_token= (implicit setSession), and 6-digit codes.
+- Defense in depth: MainActivity clears the WebView HTTP cache once per app version (update-over-install stale cache can't poison the new build; IndexedDB/localStorage untouched); native.ts prewarmNativeModules() warms the pdf chunk at boot with retries (APK only, web still lazy); mapSyncError maps ChunkLoadError to actionable copy; SyncDialog uses mapped errors, platform-aware sent-link toast, PKCE-aware placeholder + native hint.
+- Housekeeping: sw.js cache jee-study-v4; APK versionCode 2 / versionName 1.1; CI release notes updated with full sign-in steps.
+- Gates: tsc 0, eslint 0, sync.test 14/14, gcal.test 21/21, web build OK, build:mobile OK.
+- E2E on the served export build (agent-browser, mock sync, two tabs = two devices): device A "Send link" signs in (the exact previously-failing action) → paper uploaded via DataTransfer lands in IDB (1887B blob) and pushes; device B (?device=b, separate IDB) pulls the SAME paper — blob byte-identical to source; 0 console errors/warnings both tabs (research/apk-fix-a|b-papers.png).
+- APK: gradle assembleDebug 6.96MB, apksigner verify OK (same debug key → updates in place), copy at download/JEE-Study-debug.apk.
+- Pushed a90c15c to origin/main (ephemeral credential helper); CI android-apk triggered and watched to green; mobile-latest release refreshed with the fixed APK.
+
+Stage Summary:
+- Sign-in chunk failure structurally eliminated (zero runtime chunk fetches in the APK build); pasted-link sign-in now accepts every token form Supabase can produce; WebView cache cleared on app update. Fixed APK live on the mobile-latest release + local copy.

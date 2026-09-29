@@ -80,11 +80,13 @@ Every build is signed with the same committed debug key, so updates install stra
 
 1. Connect the same Supabase project (URL + anon key) — or set a project up there the first time
 2. Sign in with the same email; Supabase emails you a magic link
-3. Tapping the link opens the *browser* (not the app), so in the app paste the link instead: long-press it in the email → *Copy link address* → paste into the app's "Paste the link here" field → **Verify**
+3. Tapping the link opens the *browser* (not the app), so in the app paste the link instead: long-press it in the email → *Copy link address* → paste into the app's "Paste the link here" field → **Verify**. Any form works — the raw `…verify?token_hash=…` link, the `?code=…` link the browser lands on, or the 6-digit code if your email template shows one
 4. Done — questions, tests, responses, syllabus, todos, calendar, formulas **and question papers (PDFs ≤ ~4.8 MB)** flow both ways. Bigger PDFs sync metadata-only; re-upload the file where you need it.
 
 Notes:
 
+- The whole app — including the sync engine and the PDF tools — is bundled into the APK's boot graph (no code is fetched lazily at runtime), so sign-in and PDF import can't trip over WebView chunk-loading the way early builds could
+- Updating the APK automatically clears the WebView HTTP cache once (app data — IndexedDB, sync session — is untouched), so a stale cache from a previous build can never break the new one
 - AI features on the phone call your provider directly from the app (no local proxy server) — answers arrive whole instead of streaming, everything else is identical
 - Google Calendar push may be limited inside the APK (Google's sign-in popup is restricted in app webviews) — the web/PWA version handles that flow best
 - Rebuild locally anytime: `npm run build:mobile && cd android && ./gradlew assembleDebug`

@@ -52,7 +52,7 @@ jobs:
 
           Install: download → allow 'install from unknown sources' for your browser → open the APK.
           Updates install straight over old versions (same signing key every build).
-          Sign-in on the app: Data → Sync → paste the magic link from your email (long-press → Copy link address)."
+          Sign-in on the app: Data → Sync → enter your email → Send link → open your email → long-press the link → Copy link address → paste it in the app (the ?code=… link works too), or type the 6-digit code if your email shows one."
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

@@ -33,3 +33,28 @@ export function nativeHttp(): NativeHttp | null {
   const plugin = cap()?.Plugins?.CapacitorHttp;
   return (plugin as NativeHttp | undefined) ?? null;
 }
+
+/**
+ * Warm lazily-imported modules shortly after boot, inside the APK only.
+ *
+ * Every asset in the shell is served locally, and the boot graph demonstrably
+ * loads (the app is running) — but a stale WebView HTTP cache entry from an
+ * app update could 404 a chunk that is requested on demand minutes later
+ * (this is how "Failed to load chunk …" hit the old supabase sign-in path).
+ * Loading the remaining lazy chunk (pdfjs-dist) at launch, with retries,
+ * moves any such failure to a moment where a restart is obvious instead of
+ * mid-import. On the web this is a no-op — lazy loading stays as-is there.
+ */
+export function prewarmNativeModules(): void {
+  if (!IS_NATIVE) return;
+  const attempt = (n: number): void => {
+    void import("pdfjs-dist")
+      .then((m) => {
+        m.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      })
+      .catch(() => {
+        if (n > 0) window.setTimeout(() => attempt(n - 1), 5000);
+      });
+  };
+  window.setTimeout(() => attempt(4), 2500);
+}

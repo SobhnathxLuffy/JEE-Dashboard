@@ -36,6 +36,7 @@ import {
   disconnectSync,
   initSync,
   loadSyncConfig,
+  mapSyncError,
   probeProject,
   saveSyncConfig,
   setAutoSync,
@@ -196,12 +197,16 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       await signIn(email);
       const stillOut = (await import("@/lib/sync")).getSyncStatus().phase === "signed-out";
       if (stillOut) {
-        toast.success(`Magic link sent to ${email.trim()} — open it on this device to sign in`);
+        toast.success(
+          IS_NATIVE
+            ? `Sign-in link sent to ${email.trim()} — open your email, then copy the link (long-press → Copy link address) or the 6-digit code into the field below`
+            : `Magic link sent to ${email.trim()} — open it on this device to sign in`
+        );
       } else {
         toast.success("Signed in — sync running");
       }
     } catch (e) {
-      toast.error((e as Error).message ?? "Could not send the magic link");
+      toast.error(mapSyncError(e));
     } finally {
       setSending(false);
     }
@@ -218,7 +223,7 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       toast.success("Signed in — sync running");
       setTokenInput("");
     } catch (e) {
-      toast.error((e as Error).message ?? "Could not verify that link");
+      toast.error(mapSyncError(e));
     } finally {
       setVerifying(false);
     }
@@ -475,7 +480,7 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                 <Input
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="https://…/auth/v1/verify?token_hash=…  or the 6-digit code"
+                  placeholder="https://…verify?token_hash=… / https://…?code=… / 6-digit code"
                   aria-label="Magic link or one-time code"
                   autoComplete="off"
                   spellCheck={false}
@@ -495,7 +500,7 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
               </div>
               <p className="text-[10px] text-muted-foreground/70 leading-snug">
                 {IS_NATIVE
-                  ? "In the app, tapping the email link opens your browser instead — long-press the link → Copy link address → paste it here."
+                  ? "In the app the email link opens your browser — long-press it → Copy link address → paste it here (the link with ?code=… works too), or type the 6-digit code."
                   : "Works on any device: if the link opens the wrong browser or tab, copy it and paste it here to sign in this one in."}
               </p>
             </div>

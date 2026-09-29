@@ -18,6 +18,14 @@
 // (base64 data URL); bigger PDFs travel metadata-only.
 
 import { useSyncExternalStore } from "react";
+// Static import ON PURPOSE: this module used to be dynamically imported and
+// inside the Android APK that runtime chunk fetch failed with
+// "Failed to load chunk /_next/static/chunks/…" — the WebView refused the
+// lazily-injected <script>. Every sign-in attempt then died with that raw
+// Turbopack error before any network call was made. Bundling supabase-js into
+// the entry graph (it's ~40 KB gzipped) removes the last runtime chunk fetch
+// from the auth path on every platform.
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   applyRemoteDelete,
   bulkPut,
@@ -198,6 +206,9 @@ export function setAutoSync(on: boolean): void {
 export function mapSyncError(e: unknown): string {
   const msg = String((e as { message?: string })?.message ?? e ?? "");
   const low = msg.toLowerCase();
+  if (low.includes("failed to load chunk") || low.includes("chunkloaderror") || low.includes("loading chunk")) {
+    return "The app failed to load one of its own modules — close and reopen the app once. If it keeps happening, install the latest APK from the GitHub releases page.";
+  }
   if (low.includes("failed to fetch") || low.includes("networkerror") || low.includes("load failed")) {
     return "Can't reach the Supabase project — check your internet or the project URL (paused projects act offline).";
   }
@@ -243,13 +254,13 @@ export async function probeProject(
   }
 }
 
-// ─── Supabase backend (loaded lazily — keeps it out of the initial bundle) ──
+// ─── Supabase backend ─────────────────────────────────────────────────────
 
-let sbPromise: Promise<import("@supabase/supabase-js").SupabaseClient> | null = null;
+let sbPromise: Promise<SupabaseClient> | null = null;
 
 async function supabaseClient(cfg: SyncConfig) {
   if (!sbPromise) {
-    sbPromise = import("@supabase/supabase-js").then(({ createClient }) =>
+    sbPromise = Promise.resolve(
       createClient(cfg.url, cfg.anonKey, {
         auth: {
           storageKey: "jee-sync-auth",
@@ -291,7 +302,12 @@ function makeSupabaseBackend(cfg: SyncConfig): SyncBackend {
       const sb = await supabaseClient(cfg);
       const input = tokenInput.trim();
       if (/^https?:\/\//i.test(input)) {
-        // the whole magic-link URL — carry the token_hash over to THIS device
+        // The whole magic-link URL. Depending on how the user copies it and on
+        // the project's auth settings this arrives in three shapes:
+        //   1. the raw email link  …/auth/v1/verify?token_hash=…&type=magiclink
+        //   2. where PKCE lands    …redirect?code=…          (link was tapped)
+        //   3. where implicit lands …redirect#access_token=…&refresh_token=…
+        // All three are accepted so sign-in works no matter which one is pasted.
         let u: URL;
         try {
           u = new URL(input);
@@ -299,20 +315,39 @@ function makeSupabaseBackend(cfg: SyncConfig): SyncBackend {
           throw new Error("That doesn't look like a URL — copy the full link from the email.");
         }
         const tokenHash = u.searchParams.get("token_hash");
-        const type = (u.searchParams.get("type") ?? "magiclink") as
-          | "magiclink"
-          | "signup"
-          | "recovery"
-          | "invite"
-          | "email";
-        if (!tokenHash) {
-          throw new Error(
-            "That link has no token in it — long-press the link in the email and copy the FULL address."
-          );
+        if (tokenHash) {
+          const type = (u.searchParams.get("type") ?? "magiclink") as
+            | "magiclink"
+            | "signup"
+            | "recovery"
+            | "invite"
+            | "email";
+          const { error } = await sb.auth.verifyOtp({ type, token_hash: tokenHash });
+          if (error) throw error;
+          return;
         }
-        const { error } = await sb.auth.verifyOtp({ type, token_hash: tokenHash });
-        if (error) throw error;
-        return;
+        const code = u.searchParams.get("code");
+        if (code) {
+          // PKCE: this app started the flow (signInOtp) so the code verifier is
+          // in THIS device's localStorage — exchanging completes sign-in here.
+          const { error } = await sb.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          return;
+        }
+        if (u.hash.includes("access_token=")) {
+          // implicit flow — tokens ride in the URL fragment
+          const frag = new URLSearchParams(u.hash.replace(/^#/, ""));
+          const accessToken = frag.get("access_token");
+          const refreshToken = frag.get("refresh_token");
+          if (accessToken && refreshToken) {
+            const { error } = await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            if (error) throw error;
+            return;
+          }
+        }
+        throw new Error(
+          "That link has no sign-in token in it — long-press the link in the email and copy the FULL address."
+        );
       }
       const digits = input.replace(/[\s-]/g, "");
       if (/^\d{6}$/.test(digits)) {

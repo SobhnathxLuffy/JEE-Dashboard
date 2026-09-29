@@ -4,7 +4,7 @@
 // + demo paper available offline. Never touches /api/*, cross-origin, non-GET.
 // NOTE: cache-first was rejected — dev chunks change under the same URL and a
 // cache-first SW served stale code during verification.
-const CACHE = "jee-study-v3";
+const CACHE = "jee-study-v4";
 const PRECACHE = [
   "/",
   "/demo-paper.pdf",

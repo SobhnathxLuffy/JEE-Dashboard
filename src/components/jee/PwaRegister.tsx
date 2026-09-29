@@ -6,11 +6,13 @@
 // study data under disk pressure (localhost origins qualify once granted).
 // Inside the Android APK the shell is bundled natively — no SW needed there.
 import { useEffect } from "react";
-import { IS_NATIVE } from "@/lib/native";
+import { IS_NATIVE, prewarmNativeModules } from "@/lib/native";
 
 export function PwaRegister() {
   useEffect(() => {
-    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    if (typeof window === "undefined") return;
+    prewarmNativeModules(); // APK only — warms the pdf chunk at launch
+    if (!("serviceWorker" in navigator)) return;
     const id = window.setTimeout(() => {
       if (!IS_NATIVE) navigator.serviceWorker.register("/sw.js").catch(() => {});
       try {

@@ -43,7 +43,9 @@ import {
   signOutSync,
   syncNow,
   useSyncStatus,
+  verifySignIn,
 } from "@/lib/sync";
+import { IS_NATIVE } from "@/lib/native";
 
 const SETUP_SQL = `-- JEE Cockpit sync — run once in the Supabase SQL Editor
 create table if not exists public.sync_data (
@@ -102,6 +104,7 @@ const STORE_LABELS: Record<string, string> = {
   daily_log: "daily logs",
   tasks: "to-dos",
   cal_events: "calendar events",
+  papers: "question papers (PDF included if ≤ ~4.8 MB)",
 };
 
 function relTime(ts: number | null): string {
@@ -122,6 +125,8 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [anonKey, setAnonKey] = useState("");
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [verifying, setVerifying] = useState(false);
   const [probing, setProbing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [counts, setCounts] = useState<string>("");
@@ -137,6 +142,7 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const daily = useLive("daily_log");
   const tasks = useLive("tasks");
   const calEvents = useLive("cal_events");
+  const papers = useLive("papers");
 
   useEffect(() => {
     if (!open) return;
@@ -152,9 +158,10 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       daily_log: daily.length,
       tasks: tasks.length,
       cal_events: calEvents.length,
+      papers: papers.length,
     };
     setCounts(SYNCED_STORES.map((s) => `${STORE_LABELS[s]}: ${n[s] ?? 0}`).join(" · "));
-  }, [open, questions, tests, responses, syllabus, formula, daily, tasks, calEvents]);
+  }, [open, questions, tests, responses, syllabus, formula, daily, tasks, calEvents, papers]);
 
   async function connect() {
     const u = url.trim().replace(/\/+$/, "");
@@ -197,6 +204,23 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       toast.error((e as Error).message ?? "Could not send the magic link");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function verifyToken() {
+    if (!tokenInput.trim()) {
+      toast.error("Paste the link (or code) from the email first");
+      return;
+    }
+    setVerifying(true);
+    try {
+      await verifySignIn(tokenInput, email);
+      toast.success("Signed in — sync running");
+      setTokenInput("");
+    } catch (e) {
+      toast.error((e as Error).message ?? "Could not verify that link");
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -445,6 +469,36 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                 you in. Use the same email on every device that should share the data.
               </p>
             </div>
+            <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+              <Label className="text-xs">Got the email? Paste the link here</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="https://…/auth/v1/verify?token_hash=…  or the 6-digit code"
+                  aria-label="Magic link or one-time code"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void verifyToken();
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => void verifyToken()}
+                  disabled={verifying || !tokenInput.trim()}
+                  className="shrink-0"
+                >
+                  {verifying ? "Checking…" : "Verify"}
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/70 leading-snug">
+                {IS_NATIVE
+                  ? "In the app, tapping the email link opens your browser instead — long-press the link → Copy link address → paste it here."
+                  : "Works on any device: if the link opens the wrong browser or tab, copy it and paste it here to sign in this one in."}
+              </p>
+            </div>
             <Button
               size="sm"
               variant="ghost"
@@ -467,9 +521,9 @@ export function SyncDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           </div>
           <p className="text-[11px] text-muted-foreground leading-snug">{counts || "…"}</p>
           <p className="text-[11px] text-muted-foreground leading-snug">
-            Not synced: PDF files in Papers (stay device-local), your AI provider key (never
-            leaves the device), and in-progress test sessions. Deleting a record here deletes it
-            everywhere (last-write-wins, including deletes).
+            Not synced: PDFs over ~4.8 MB (metadata still travels — re-upload the file on the other
+            device), your AI provider key (never leaves the device), and in-progress test sessions.
+            Deleting a record here deletes it everywhere (last-write-wins, including deletes).
           </p>
           {status.email ? (
             <p className="text-[11px] text-muted-foreground/80 leading-snug">

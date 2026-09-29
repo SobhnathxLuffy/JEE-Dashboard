@@ -96,11 +96,19 @@ export function PapersView({ nav }: { nav: NavController }) {
   );
 
   function importPaper(p: PaperRecord) {
+    if (!p.data) {
+      toast.error("The PDF file isn't on this device (too large to sync) — re-upload it here");
+      return;
+    }
     toast.success(`“${p.name.slice(0, 32)}” loaded — no re-upload needed`);
     nav.importPaper(p);
   }
 
   function download(p: PaperRecord) {
+    if (!p.data) {
+      toast.error("The PDF file isn't on this device (too large to sync) — re-upload it here");
+      return;
+    }
     const url = URL.createObjectURL(p.data);
     const a = document.createElement("a");
     a.href = url;

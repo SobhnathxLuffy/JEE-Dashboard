@@ -66,6 +66,29 @@ NODE_ENV=production PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js
 JEE_PORT=3001 ./scripts/setup-local.sh
 ```
 
+## Install on your phone (Android APK)
+
+The repo builds its own APK via GitHub Actions on every push. Grab the latest:
+
+1. Open **github.com/SobhnathxLuffy/JEE-Dashboard → Releases → `mobile-latest`**
+2. Download **JEE-Study-debug.apk** on the phone
+3. Allow *install from unknown apps* for your browser when prompted → open the APK
+
+Every build is signed with the same committed debug key, so updates install straight over old versions (no uninstall needed). The APK is fully self-contained: the whole app ships inside it, works offline, and data lives in the app's own IndexedDB.
+
+**Sync on the phone** — Data → Sync:
+
+1. Connect the same Supabase project (URL + anon key) — or set a project up there the first time
+2. Sign in with the same email; Supabase emails you a magic link
+3. Tapping the link opens the *browser* (not the app), so in the app paste the link instead: long-press it in the email → *Copy link address* → paste into the app's "Paste the link here" field → **Verify**
+4. Done — questions, tests, responses, syllabus, todos, calendar, formulas **and question papers (PDFs ≤ ~4.8 MB)** flow both ways. Bigger PDFs sync metadata-only; re-upload the file where you need it.
+
+Notes:
+
+- AI features on the phone call your provider directly from the app (no local proxy server) — answers arrive whole instead of streaming, everything else is identical
+- Google Calendar push may be limited inside the APK (Google's sign-in popup is restricted in app webviews) — the web/PWA version handles that flow best
+- Rebuild locally anytime: `npm run build:mobile && cd android && ./gradlew assembleDebug`
+
 ## Development
 
 ```bash

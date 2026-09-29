@@ -7,6 +7,7 @@
 
 import type { AiUsageRecord } from "./types";
 import { uid } from "./types";
+import { nativeHttp, type NativeHttp } from "./native";
 
 // ─── settings (localStorage — sync read, device-local) ───────────────────────
 
@@ -105,6 +106,113 @@ export class AIProviderError extends Error {
   }
 }
 
+// ─── provider plumbing shared by the web proxy path and the native path ────
+
+function upstreamUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (/\/chat\/completions$/.test(trimmed)) return trimmed; // full endpoint pasted
+  return `${trimmed}/chat/completions`;
+}
+
+interface ChatMsg {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+function providerPayload(
+  opts: CallAIOpts,
+  model: string,
+  stream: boolean,
+  useJsonMode: boolean
+): Record<string, unknown> {
+  const messages: ChatMsg[] = [
+    { role: "system", content: opts.system },
+    { role: "user", content: opts.user },
+  ];
+  const payload: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: opts.temperature ?? 0.3,
+    stream,
+  };
+  if (stream) payload.stream_options = { include_usage: true };
+  if (useJsonMode) payload.response_format = { type: "json_object" };
+  return payload;
+}
+
+/**
+ * APK path: no Next server exists on the device, so the call goes straight to
+ * the provider through CapacitorHttp (native HTTP, no CORS in the way).
+ * Streaming isn't possible over the native bridge — the answer arrives whole
+ * and is replayed through onDelta so the UI still feels alive.
+ */
+async function nativeCallAI(s: AISettings, opts: CallAIOpts): Promise<{ text: string; usage: AIUsage }> {
+  const http: NativeHttp | null = nativeHttp();
+  if (!http) throw new AIProviderError("Native HTTP bridge unavailable in this build.");
+  const endpoint = upstreamUrl(s.baseUrl);
+  const send = (payload: Record<string, unknown>) =>
+    http.request({
+      url: endpoint,
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.apiKey}` },
+      data: payload,
+      connectTimeout: 60_000,
+      readTimeout: 280_000,
+    });
+
+  let res: { status: number; data: unknown };
+  try {
+    res = await send(providerPayload(opts, s.model, false, opts.jsonMode === true));
+    // json_object is unsupported by some models/proxies — retry plain once
+    if (res.status === 400 || res.status === 422) {
+      const detail = typeof res.data === "string" ? res.data : JSON.stringify(res.data ?? "");
+      if (opts.jsonMode === true && /response_format|json[_ ]?object|json_mode/i.test(detail)) {
+        res = await send(providerPayload(opts, s.model, false, false));
+      }
+    }
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new AIProviderError(
+      `Could not reach the provider at ${endpoint} — check the base URL and your internet.`
+    );
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    const body = typeof res.data === "string" ? res.data : JSON.stringify(res.data ?? "");
+    throw new AIProviderError(friendly(res.status, body.slice(0, 200)), res.status);
+  }
+
+  let j: { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+  if (typeof res.data === "string") {
+    try {
+      j = JSON.parse(res.data) as typeof j;
+    } catch {
+      j = null;
+    }
+  } else {
+    j = (res.data as typeof j) ?? null;
+  }
+  if (!j) throw new AIProviderError("Provider returned an unreadable response.");
+
+  const text = j.choices?.[0]?.message?.content ?? "";
+  const usage: AIUsage = {
+    prompt_tokens: j.usage?.prompt_tokens ?? Math.round((opts.system.length + opts.user.length) / 4),
+    completion_tokens: j.usage?.completion_tokens ?? Math.round(text.length / 4),
+  };
+  return { text, usage };
+}
+
+/** Replay a complete answer through onDelta in small slices (native shim). */
+async function fakeStream(text: string, onDelta: (full: string) => void): Promise<void> {
+  const SLICES = 20;
+  const size = Math.max(1, Math.ceil(text.length / SLICES));
+  for (let i = size; i < text.length; i += size) {
+    onDelta(text.slice(0, i));
+    await new Promise((r) => setTimeout(r, 15));
+  }
+  onDelta(text);
+}
+
 function friendly(status: number, body: string): string {
   const detail = body.slice(0, 200);
   if (status === 401 || status === 403) return "API key rejected — check the key in AI settings.";
@@ -118,6 +226,8 @@ function friendly(status: number, body: string): string {
 /**
  * One AI call. Returns the full text; logs usage to IndexedDB.
  * Streams through onDelta when provided (and not jsonMode).
+ * On the web it goes through /api/ai (same-origin proxy); inside the APK it
+ * goes straight to the provider over the native HTTP bridge.
  */
 export async function callAI(opts: CallAIOpts): Promise<{ text: string; usage: AIUsage }> {
   const s = loadAISettings();
@@ -126,6 +236,15 @@ export async function callAI(opts: CallAIOpts): Promise<{ text: string; usage: A
   }
   const stream = Boolean(opts.onDelta) && !opts.jsonMode;
 
+  // ── native (APK) path ──
+  if (nativeHttp()) {
+    const { text, usage } = await nativeCallAI(s, opts);
+    if (stream && text) await fakeStream(text, opts.onDelta!);
+    await logUsage(opts.feature, s.model, usage);
+    return { text, usage };
+  }
+
+  // ── web path — thin same-origin proxy, streaming passes through ──
   const body = {
     baseUrl: s.baseUrl,
     apiKey: s.apiKey,

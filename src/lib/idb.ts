@@ -62,10 +62,10 @@ export const STORES = [
 export type StoreName = (typeof STORES)[number];
 
 /**
- * Stores replicated by the optional Supabase sync. Papers are excluded on
- * purpose — the PDF blobs are megabytes and stay device-local (backup via
- * the Data tab still carries them). kv / ai_* are device-local by design
- * (session state, provider keys, token accounting).
+ * Stores replicated by the optional Supabase sync. Papers sync WITH their
+ * PDF as a base64 data URL (codec in sync.ts) up to ~4.8 MB — bigger PDFs
+ * travel metadata-only and stay re-uploadable. kv / ai_* are device-local by
+ * design (session state, provider keys, token accounting).
  */
 export const SYNCED_STORES = [
   "questions",
@@ -76,6 +76,7 @@ export const SYNCED_STORES = [
   "daily_log",
   "tasks",
   "cal_events",
+  "papers",
 ] as const;
 
 type SyncedStore = (typeof SYNCED_STORES)[number];

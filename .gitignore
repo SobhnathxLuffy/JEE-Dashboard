@@ -58,3 +58,9 @@ tool-results
 # sandbox artifacts — never publish
 db/
 download/*.tar.gz
+
+# mobile/APK build
+/.next-mobile/
+/out/
+/.mobile-api-backup/
+download/*.apk

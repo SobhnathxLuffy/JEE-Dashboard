@@ -14,7 +14,8 @@
 //
 // Privacy posture: data lives in the user's own project, RLS-isolated, over
 // HTTPS. AI provider keys, Google tokens and in-progress sessions stay
-// device-local (never synced). PDF files stay device-local (too heavy).
+// device-local (never synced). Papers sync with their PDF up to ~4.8 MB
+// (base64 data URL); bigger PDFs travel metadata-only.
 
 import { useSyncExternalStore } from "react";
 import {
@@ -29,6 +30,7 @@ import {
   SYNCED_STORES,
   type StoreName,
 } from "./idb";
+import { IS_NATIVE } from "./native";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,12 @@ export interface SyncBackend {
   getSession(): Promise<SyncSession | null>;
   /** Passwordless sign-in — sends the magic link (or instant in mock mode). */
   signInOtp(email: string): Promise<void>;
+  /**
+   * Complete sign-in from a pasted magic-link URL or 6-digit code — the path
+   * the Android APK uses, where tapping the link opens a browser instead of
+   * this app and the session would land in the wrong storage.
+   */
+  verifyOtp(tokenInput: string, email: string): Promise<void>;
   signOut(): Promise<void>;
   onSession(cb: () => void): () => void;
   /** Rows changed after `sinceIso` (ascending). */
@@ -267,11 +275,55 @@ function makeSupabaseBackend(cfg: SyncConfig): SyncBackend {
     },
     async signInOtp(email) {
       const sb = await supabaseClient(cfg);
-      const { error } = await sb.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
-      });
+      // On the web the link opens back into this same origin (PKCE completes
+      // here). In the APK a redirect target would open the phone's browser —
+      // useless — so no redirect is requested; sign-in completes via
+      // verifyOtp with the pasted link/code instead.
+      const { error } = IS_NATIVE
+        ? await sb.auth.signInWithOtp({ email })
+        : await sb.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
+          });
       if (error) throw error;
+    },
+    async verifyOtp(tokenInput, email) {
+      const sb = await supabaseClient(cfg);
+      const input = tokenInput.trim();
+      if (/^https?:\/\//i.test(input)) {
+        // the whole magic-link URL — carry the token_hash over to THIS device
+        let u: URL;
+        try {
+          u = new URL(input);
+        } catch {
+          throw new Error("That doesn't look like a URL — copy the full link from the email.");
+        }
+        const tokenHash = u.searchParams.get("token_hash");
+        const type = (u.searchParams.get("type") ?? "magiclink") as
+          | "magiclink"
+          | "signup"
+          | "recovery"
+          | "invite"
+          | "email";
+        if (!tokenHash) {
+          throw new Error(
+            "That link has no token in it — long-press the link in the email and copy the FULL address."
+          );
+        }
+        const { error } = await sb.auth.verifyOtp({ type, token_hash: tokenHash });
+        if (error) throw error;
+        return;
+      }
+      const digits = input.replace(/[\s-]/g, "");
+      if (/^\d{6}$/.test(digits)) {
+        // 6-digit code (only sent when the project uses the Email OTP template)
+        const { error } = await sb.auth.verifyOtp({ email, token: digits, type: "email" });
+        if (error) throw error;
+        return;
+      }
+      throw new Error(
+        "Paste the full link from the email (long-press → Copy link address), or the 6-digit code."
+      );
     },
     async signOut() {
       const sb = await supabaseClient(cfg);
@@ -310,8 +362,28 @@ function makeSupabaseBackend(cfg: SyncConfig): SyncBackend {
     async pushRows(rows) {
       if (rows.length === 0) return;
       const sb = await supabaseClient(cfg);
-      for (let i = 0; i < rows.length; i += 200) {
-        const chunk = rows.slice(i, i + 200);
+      // chunk by count AND estimated body size — a 4 MB paper payload must
+      // travel alone, not inside a 200-row batch (Supabase caps request size)
+      const chunks: SyncRow[][] = [];
+      let cur: SyncRow[] = [];
+      let curSize = 0;
+      for (const r of rows) {
+        let sz = 64;
+        try {
+          sz = JSON.stringify(r.payload ?? null)?.length ?? 64;
+        } catch {
+          /* unserializable payload — let the rpc call surface it */
+        }
+        if (cur.length >= 200 || (cur.length > 0 && curSize + sz > 1_500_000)) {
+          chunks.push(cur);
+          cur = [];
+          curSize = 0;
+        }
+        cur.push(r);
+        curSize += sz;
+      }
+      if (cur.length > 0) chunks.push(cur);
+      for (const chunk of chunks) {
         const body = chunk.map((r) => ({
           store: r.store,
           rec_id: r.rec_id,
@@ -381,6 +453,9 @@ function makeMockBackend(): SyncBackend {
       localStorage.setItem(MOCK_SESSION_KEY, JSON.stringify(sess));
       changeCb?.();
     },
+    async verifyOtp() {
+      // mock mode signs in instantly inside signInOtp — nothing to verify
+    },
     async signOut() {
       localStorage.removeItem(MOCK_SESSION_KEY);
       changeCb?.();
@@ -421,6 +496,64 @@ function makeMockBackend(): SyncBackend {
       localStorage.setItem(`${MOCK_ROWS_KEY}-tick`, String(Date.now()));
     },
   };
+}
+
+// ─── per-store wire codecs ────────────────────────────────────────────────
+// IndexedDB records can carry Blobs; JSON over the wire cannot. Papers store
+// the PDF as a Blob locally, so it travels as a base64 data URL and is
+// decoded back on pull. PDFs beyond the cap sync metadata-only (pdf_sync_
+// skipped flag) — the receiving device shows the entry minus the file.
+
+const PAPER_BLOB_CAP = 4_800_000; // bytes of PDF binary that still syncs
+
+async function blobToB64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < buf.length; i += CH) {
+    bin += String.fromCharCode(...buf.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+
+function b64ToBlob(b64: string, type = "application/pdf"): Blob {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+const PDF_DATA_URL = /^data:application\/pdf;base64,/;
+
+/** Local record → JSON-safe wire payload. */
+async function toWire(store: string, rec: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (store !== "papers") return rec;
+  const data = (rec as { data?: unknown }).data;
+  if (data instanceof Blob) {
+    if (data.size > PAPER_BLOB_CAP) {
+      return { ...rec, data: undefined, pdf_sync_skipped: `PDF too large to sync (${(data.size / 1_048_576).toFixed(1)} MB > ~4.8 MB)` };
+    }
+    try {
+      return { ...rec, data: `data:application/pdf;base64,${await blobToB64(data)}` };
+    } catch {
+      return { ...rec, data: undefined, pdf_sync_skipped: "PDF could not be read" };
+    }
+  }
+  return rec; // already wire-shaped (metadata-only sync or re-push)
+}
+
+/** Wire payload → local record (restores the PDF Blob). */
+function fromWire(store: string, payload: Record<string, unknown>): Record<string, unknown> {
+  if (store !== "papers") return payload;
+  const data = (payload as { data?: unknown }).data;
+  if (typeof data === "string" && PDF_DATA_URL.test(data)) {
+    try {
+      return { ...payload, data: b64ToBlob(data.slice(PDF_DATA_URL.source.length - 1)) };
+    } catch {
+      return { ...payload, data: undefined, pdf_sync_skipped: "PDF failed to decode on arrival" };
+    }
+  }
+  return payload;
 }
 
 // ─── pure merge helpers (unit-tested in scripts/sync.test.ts) ───────────────
@@ -477,7 +610,7 @@ async function applyRemote(rows: SyncRow[]): Promise<{ applied: number; maxRemot
     if (r.deleted) {
       g.deletes.push({ id: r.rec_id, ms });
     } else if (r.payload && typeof r.payload === "object") {
-      g.upserts.push({ payload: r.payload as Record<string, unknown>, ms });
+      g.upserts.push({ payload: fromWire(r.store, r.payload as Record<string, unknown>), ms });
     }
     byStore.set(r.store, g);
   }
@@ -512,7 +645,7 @@ async function collectDirty(effPushMs: number): Promise<SyncRow[]> {
         rows.push({
           store,
           rec_id: r.id,
-          payload: r,
+          payload: await toWire(store, r as unknown as Record<string, unknown>),
           updated_at: new Date(ms).toISOString(),
           deleted: false,
         });
@@ -619,6 +752,22 @@ export async function signIn(email: string): Promise<void> {
   if (sess) {
     publishStatus({ phase: "idle", email: sess.email });
     void syncNow("sign-in");
+  }
+}
+
+/**
+ * Complete sign-in with a pasted magic-link URL or 6-digit code — how the
+ * Android APK signs in, since tapping the link there opens a browser.
+ */
+export async function verifySignIn(tokenInput: string, email: string): Promise<void> {
+  if (!backend) throw new Error("Sync is not configured yet");
+  await backend.verifyOtp(tokenInput, email.trim().toLowerCase());
+  const sess = await backend.getSession();
+  if (sess) {
+    publishStatus({ phase: "idle", email: sess.email });
+    void syncNow("sign-in");
+  } else {
+    throw new Error("That link didn't sign you in — generate a fresh one and try again.");
   }
 }
 
